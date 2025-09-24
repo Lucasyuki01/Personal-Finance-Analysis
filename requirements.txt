@@ -5,3 +5,4 @@ numpy
 pyarrow        # fast CSV/Parquet I/O (pandas uses it when available)
 openpyxl       # lets pandas read Excel if you export .xlsx from the bank
 python-dateutil
+streamlit-plotly-events
