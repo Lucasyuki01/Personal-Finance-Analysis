@@ -10,9 +10,9 @@ __pycache__/
 *.pyd
 
 # Local data
-data/
-*.csv
-*.xlsx
+#data/
+#*.csv
+#*.xlsx
 
 # System files
 .DS_Store
