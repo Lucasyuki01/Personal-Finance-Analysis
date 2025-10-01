@@ -10,3 +10,4 @@ openai
 tenacity
 python-dotenv
 openpyxl
+matplotlib
