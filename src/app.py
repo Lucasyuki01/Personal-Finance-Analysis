@@ -157,6 +157,7 @@ def categorize_text(text: str) -> str:
 dff["Category"] = dff["Description"].apply(categorize_text)
 
 # Expenses only
+expenses = pd.DataFrame()
 if "Amount" not in dff.columns:
     st.warning("No 'Amount' column found to compute expenses.")
 else:
@@ -170,6 +171,8 @@ else:
             .sum()
             .sort_values("Amount_abs", ascending=False)
         )
+        total_expenses = by_cat["Amount_abs"].sum()
+        by_cat["Percentage"] = (by_cat["Amount_abs"] / total_expenses * 100).round(2)
 
         c1, c2 = st.columns([2, 1], gap="large")
         with c1:
@@ -180,13 +183,16 @@ else:
                 title="Expenses by Category",
                 hole=0.0  # change to 0.4 for a donut chart
             )
-            fig_pie.update_traces(textinfo="percent+label")
+            fig_pie.update_traces(textinfo="percent+label+value")
             st.plotly_chart(fig_pie, use_container_width=True)
 
         with c2:
             st.subheader("Totals by Category")
-            st.dataframe(by_cat.rename(columns={"Amount_abs": "Total Spent"}),
-                         use_container_width=True)
+            st.metric("Total Expenses", f"${total_expenses:,.2f}")
+            st.dataframe(
+                by_cat.rename(columns={"Amount_abs": "Total Spent"}),
+                use_container_width=True
+            )
             
 # ---------- Category Tuner (interactive rule builder) ----------
 if "Amount" in dff.columns:
@@ -245,14 +251,83 @@ if "Amount" in dff.columns:
                         else:
                             st.info("This keyword already exists in the chosen category.")
 
+# Monthly overview
+if {"Date", "Amount"}.issubset(dff.columns) and not dff.empty:
+    monthly = dff.copy()
+    monthly["Month"] = monthly["Date"].dt.to_period("M").dt.to_timestamp()
+    monthly["Inflows"] = monthly["Amount"].where(monthly["Amount"] > 0, 0)
+    monthly["Outflows"] = monthly["Amount"].where(monthly["Amount"] < 0, 0)
+
+    monthly_summary = (
+        monthly.groupby("Month")
+        .agg(
+            Inflows=("Inflows", "sum"),
+            Outflows=("Outflows", "sum"),
+            Net=("Amount", "sum"),
+        )
+        .reset_index()
+    )
+    monthly_summary["Outflows"] = monthly_summary["Outflows"].abs()
+
+    st.subheader("Monthly Cash Flow")
+    fig_monthly = px.bar(
+        monthly_summary.melt(id_vars="Month", value_vars=["Inflows", "Outflows", "Net"], var_name="Type", value_name="Amount"),
+        x="Month",
+        y="Amount",
+        color="Type",
+        barmode="group",
+        title="Monthly Inflows vs Outflows",
+    )
+    st.plotly_chart(fig_monthly, use_container_width=True)
+
+# Overall inflow vs outflow comparison for selected range
+if "Amount" in dff.columns:
+    total_in_filtered = float(dff.loc[dff["Amount"] > 0, "Amount"].sum())
+    total_out_filtered = float(dff.loc[dff["Amount"] < 0, "Amount"].sum())
+    comparison_df = pd.DataFrame(
+        {
+            "Type": ["Inflows", "Outflows", "Net"],
+            "Amount": [
+                total_in_filtered,
+                abs(total_out_filtered),
+                total_in_filtered + total_out_filtered,
+            ],
+        }
+    )
+    st.subheader("Entradas vs Saídas")
+    fig_compare = px.bar(
+        comparison_df,
+        x="Type",
+        y="Amount",
+        color="Type",
+        text_auto=".2s",
+        title="Comparison of Inflows and Outflows",
+    )
+    st.plotly_chart(fig_compare, use_container_width=True)
+
+    # Category drill-down
+    if not expenses.empty:
+        st.subheader("Maiores gastos por categoria")
+        category_options = ["Todas"] + sorted(expenses["Category"].unique())
+        selected_category = st.selectbox("Escolha uma categoria", category_options)
+
+        if selected_category == "Todas":
+            filtered_expenses = expenses.copy()
+        else:
+            filtered_expenses = expenses.loc[expenses["Category"] == selected_category].copy()
+
+        if filtered_expenses.empty:
+            st.info("Não há gastos para a categoria selecionada.")
+        else:
+            top_expenses = (
+                filtered_expenses.assign(Amount_abs=lambda df_: df_["Amount"].abs())
+                .nlargest(10, "Amount_abs")
+                .drop(columns=["Amount_abs"])
+            )
+            st.dataframe(top_expenses)
+
 # Daily totals line chart
 if {"Date", "Amount"}.issubset(dff.columns):
     daily = dff.groupby("Date", as_index=False)["Amount"].sum()
     fig = px.line(daily, x="Date", y="Amount", title="Daily Net Flow")
     st.plotly_chart(fig, use_container_width=True)
-
-# Top expenses table
-if "Amount" in dff.columns:
-    top_expenses = dff.nsmallest(10, "Amount")  # most negative values
-    st.subheader("Top 10 Expenses")
-    st.dataframe(top_expenses)
