@@ -1,23 +1,37 @@
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
 ENV/
+env/
 
-# Python cache
+# Python cache and logs
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
+*.log
 
-# Local data
-#data/
-#*.csv
-#*.xlsx
+# Local secrets / config
+.env
+.streamlit/
 
-# System files
+# Raw data (keep private)
+data/
+data_reserve/
+
+# Exploratory notebooks
+notebooks/
+
+# Auxiliary config caches
+config/llm_cache.csv
+config/category_rules.json
+
+# Old prototype scripts (not used by Streamlit app)
+src/app.py
+src/app1.py
+src/app2.py
+src/test.py
+
+# OS artifacts
 .DS_Store
 Thumbs.db
-
-# Streamlit config
-.streamlit/
-.env
