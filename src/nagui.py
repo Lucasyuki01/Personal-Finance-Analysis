@@ -450,6 +450,21 @@ def style_pie_with_values(fig) -> None:
     fig.update_layout(uniformtext_minsize=12, uniformtext_mode="hide")
 
 
+def daily_trends(df: pd.DataFrame) -> pd.DataFrame:
+    """Return daily cumulative balance."""
+    if df.empty:
+        return pd.DataFrame(columns=["Date", "Balance"])
+
+    df_sorted = df.sort_values("Date")
+    daily_net = (
+        df_sorted.groupby("Date", as_index=False)["Amount"]
+        .sum()
+        .sort_values("Date")
+    )
+    daily_net["Balance"] = daily_net["Amount"].cumsum()
+    return daily_net[["Date", "Balance"]]
+
+
 def earnings_table(df: pd.DataFrame) -> pd.DataFrame:
     """Return earnings rows sorted by date descending."""
     earnings = df[df["Amount"] > 0].copy()
@@ -458,20 +473,20 @@ def earnings_table(df: pd.DataFrame) -> pd.DataFrame:
     return earnings.sort_values("Date", ascending=False)
 
 
-def expense_stats(df: pd.DataFrame) -> Tuple[float, pd.DataFrame]:
-    """Return median spending (absolute) and DataFrame prepared for boxplot."""
-    expenses = df[df["Amount"] < 0].copy()
+def expense_stats(df: pd.DataFrame) -> Tuple[float, float]:
+    """Return median and average spending (absolute)."""
+    expenses = df[df["Amount"] < 0]["Amount"].abs()
     if expenses.empty:
-        return 0.0, pd.DataFrame(columns=["Spending"])
-    expenses["Spending"] = expenses["Amount"].abs()
-    median_val = float(expenses["Spending"].median())
-    return median_val, expenses
+        return 0.0, 0.0
+    median_val = float(expenses.median())
+    mean_val = float(expenses.mean())
+    return median_val, mean_val
 
 
 def main() -> None:
     st.set_page_config(page_title="Personal Finance Analysis", layout="wide")
     st.title("Personal Finance Analysis")
-    st.caption("Dados carregados automaticamente de acc1.csv e acc2.csv.")
+    st.caption("Data automatically loaded from acc1.csv and acc2.csv.")
 
     try:
         bank_df_raw = load_bank_data()
@@ -481,7 +496,7 @@ def main() -> None:
 
     bank_df_clean = clean_bank_df(bank_df_raw)
     if bank_df_clean.empty:
-        st.error("Nenhuma transação disponível após a limpeza obrigatória.")
+        st.error("No transactions available after mandatory cleaning.")
         return
 
     try:
@@ -493,7 +508,7 @@ def main() -> None:
 
     bank_df_classified = classify_bank_df(bank_df_clean, pos_rules, manual_overrides)
     if bank_df_classified.empty:
-        st.error("Nenhuma transação disponível após a classificação.")
+        st.error("No transactions available after classification.")
         return
     bank_df_classified = bank_df_classified[bank_df_classified["Amount"] != 0].copy()
     display_df = bank_df_classified.sort_values("Date").reset_index(drop=True)
@@ -502,26 +517,26 @@ def main() -> None:
     max_date = display_df["Date"].max().date()
 
     with st.sidebar:
-        st.header("Filtros")
+        st.header("Filters")
         default_range = (min_date, max_date)
         if "date_filter" not in st.session_state:
             st.session_state["date_filter"] = default_range
         date_input = st.date_input(
-            "Intervalo de datas",
+            "Date range",
             value=st.session_state["date_filter"],
             min_value=min_date,
             max_value=max_date,
             key="date_filter",
         )
-        if st.button("Mostrar todo o período"):
+        if st.button("Show full period"):
             st.session_state["date_filter"] = default_range
             st.experimental_rerun()
         if not isinstance(date_input, (list, tuple)) or len(date_input) != 2:
-            st.error("Selecione as datas inicial e final.")
+            st.error("Select both start and end dates.")
             return
         start_date, end_date = date_input
         if start_date > end_date:
-            st.error("A data inicial deve ser menor ou igual à data final.")
+            st.error("Start date must be before or equal to end date.")
             return
 
         class_options = sorted(display_df["Class"].dropna().unique().tolist())
@@ -533,21 +548,21 @@ def main() -> None:
 
         category_options = sorted(display_df["Category"].dropna().unique().tolist())
         selected_categories = st.multiselect(
-            "Categoria",
+            "Category",
             options=category_options,
             default=category_options,
         )
 
         subcat_options = sorted(display_df["Sub-Category"].dropna().unique().tolist())
         selected_subcats = st.multiselect(
-            "Sub-Categoria",
+            "Sub-Category",
             options=subcat_options,
             default=subcat_options,
         )
 
         category_selector_options = ["All categories"] + category_options
         selected_category = st.selectbox(
-            "Categoria para Top 10",
+            "Category for Top 10 table",
             options=category_selector_options,
             index=0,
         )
@@ -561,98 +576,152 @@ def main() -> None:
     )
 
     earnings_df = earnings_table(filtered_df)
-    expense_median, expense_box_df = expense_stats(filtered_df)
+    expense_median, expense_mean = expense_stats(filtered_df)
+    expenses_in_period = filtered_df[filtered_df["Amount"] < 0].copy()
 
     total_spent, total_earned, delta = compute_kpis(filtered_df)
-    kpi_cols = st.columns(4)
-    kpi_cols[0].metric("Total Spent", format_currency(total_spent))
-    kpi_cols[1].metric("Total Earned", format_currency(total_earned))
-    kpi_cols[2].metric("Delta", format_currency(delta))
-    kpi_cols[3].metric("Mediana dos Gastos", format_currency(expense_median))
+    kpi_cols = st.columns(3)
+    kpi_cols[0].metric("Total spent", format_currency(total_spent))
+    kpi_cols[1].metric("Total earned", format_currency(total_earned))
+    kpi_cols[2].metric("Net delta", format_currency(delta))
 
-    chart_col_1, chart_col_2 = st.columns(2)
+    stat_cols = st.columns(2)
+    stat_cols[0].metric("Median spending", format_currency(expense_median))
+    stat_cols[1].metric("Average spending", format_currency(expense_mean))
 
     monthly_df = monthly_spending(filtered_df)
-    with chart_col_1:
+    monthly_earnings_df = monthly_earnings(filtered_df)
+    category_df = category_distribution(filtered_df)
+    earnings_category_df = earnings_category_distribution(filtered_df)
+
+    expenses_chart_col, expenses_pie_col = st.columns(2)
+    with expenses_chart_col:
         if monthly_df.empty:
-            st.info("Sem despesas no período selecionado.")
+            st.info("No expenses available for the selected range.")
         else:
             fig_monthly = px.bar(
                 monthly_df,
                 x="Month",
                 y="Total Spent",
-                title="Despesas Mensais (apenas gastos)",
-                labels={"Month": "Mês", "Total Spent": "Total gasto"},
+                title="Monthly expenses",
+                labels={"Month": "Month", "Total Spent": "Total spent"},
                 color_discrete_sequence=px.colors.sequential.OrRd,
             )
             st.plotly_chart(fig_monthly, use_container_width=True)
 
-        monthly_earnings_df = monthly_earnings(filtered_df)
-        if monthly_earnings_df.empty:
-            st.info("Sem ganhos no período selecionado.")
-        else:
-            fig_earnings = px.bar(
-                monthly_earnings_df,
-                x="Month",
-                y="Total Earned",
-                title="Ganhos Mensais",
-                labels={"Month": "Mês", "Total Earned": "Total ganho"},
-                color_discrete_sequence=px.colors.sequential.Blues,
-            )
-            st.plotly_chart(fig_earnings, use_container_width=True)
-
-    category_df = category_distribution(filtered_df)
-    earnings_category_df = earnings_category_distribution(filtered_df)
-    with chart_col_2:
+    with expenses_pie_col:
         if category_df.empty:
-            st.info("Sem distribuição de categorias de gastos.")
+            st.info("No expense category distribution to display.")
         else:
             fig_category = px.pie(
                 category_df,
                 names="Category",
                 values="Total Spent",
-                title="Distribuição de Despesas por Categoria",
+                title="Expense distribution by category",
                 color_discrete_sequence=px.colors.sequential.YlOrRd,
             )
             style_pie_with_values(fig_category)
             st.plotly_chart(fig_category, use_container_width=True)
 
+    if not expenses_in_period.empty:
+        expenses_display = expenses_in_period.copy()
+        expenses_display["Amount"] = expenses_display["Amount"].abs()
+        if "Date" in expenses_display.columns:
+            expenses_display["Date"] = expenses_display["Date"].dt.date
+        with st.expander("Expenses in period", expanded=False):
+            st.dataframe(
+                expenses_display[
+                    [
+                        col
+                        for col in [
+                            "Date",
+                            "Description",
+                            "Sub-description",
+                            "Amount",
+                            "Category",
+                            "Sub-Category",
+                            "Account",
+                        ]
+                        if col in expenses_display.columns
+                    ]
+                ],
+                use_container_width=True,
+            )
+    else:
+        st.info("No expenses in the selected range.")
+
+    earnings_chart_col, earnings_pie_col = st.columns(2)
+    with earnings_chart_col:
+        if monthly_earnings_df.empty:
+            st.info("No earnings available for the selected range.")
+        else:
+            fig_earnings = px.bar(
+                monthly_earnings_df,
+                x="Month",
+                y="Total Earned",
+                title="Monthly earnings",
+                labels={"Month": "Month", "Total Earned": "Total earned"},
+                color_discrete_sequence=px.colors.sequential.Blues,
+            )
+            st.plotly_chart(fig_earnings, use_container_width=True)
+
+    with earnings_pie_col:
         if earnings_category_df.empty:
-            st.info("Sem distribuição de categorias de ganhos.")
+            st.info("No earnings category distribution to display.")
         else:
             fig_category_earnings = px.pie(
                 earnings_category_df,
                 names="Category",
                 values="Total Earned",
-                title="Distribuição de Ganhos por Categoria",
+                title="Earnings distribution by category",
                 color_discrete_sequence=px.colors.sequential.Blues_r,
             )
             style_pie_with_values(fig_category_earnings)
             st.plotly_chart(fig_category_earnings, use_container_width=True)
 
-    st.subheader("Ganhos no Período")
-    if earnings_df.empty:
-        st.info("Não há ganhos no período selecionado.")
-    else:
+    if not earnings_df.empty:
         earnings_display = earnings_df.copy()
         if "Date" in earnings_display.columns:
             earnings_display["Date"] = earnings_display["Date"].dt.date
-        earnings_columns = [
-            "Date",
-            "Description",
-            "Sub-description",
-            "Amount",
-            "Category",
-            "Sub-Category",
-            "Account",
-        ]
-        available_columns = [c for c in earnings_columns if c in earnings_display.columns]
-        st.dataframe(earnings_display[available_columns], use_container_width=True)
+        with st.expander("Earnings in period", expanded=False):
+            st.dataframe(
+                earnings_display[
+                    [
+                        col
+                        for col in [
+                            "Date",
+                            "Description",
+                            "Sub-description",
+                            "Amount",
+                            "Category",
+                            "Sub-Category",
+                            "Account",
+                        ]
+                        if col in earnings_display.columns
+                    ]
+                ],
+                use_container_width=True,
+            )
+    else:
+        st.info("No earnings in the selected range.")
 
-    st.subheader("Top 10 Maiores Despesas")
+    trend_df = daily_trends(filtered_df)
+    if trend_df.empty:
+        st.info("No time-series data available for the selected range.")
+    else:
+        trend_fig = px.line(
+            trend_df,
+            x="Date",
+            y="Balance",
+            title="Account balance trend",
+            labels={"Balance": "Balance ($)"},
+        )
+        st.plotly_chart(trend_fig, use_container_width=True)
+
+    st.subheader("Top 10 largest expenses in the period")
     top10_df = top10_expenses(filtered_df, selected_category)
     if top10_df.empty:
-        st.info("Nenhuma despesa encontrada com os filtros atuais.")
+        st.info("No expenses match the current filters.")
     else:
         display_columns = [
             "Date",
@@ -668,77 +737,84 @@ def main() -> None:
             top10_display["Date"] = top10_display["Date"].dt.date
         st.dataframe(top10_display[available_columns], use_container_width=True)
 
-    st.subheader("Distribuição de Subcategorias por Categoria")
-    subcat_select_options = ["Selecione uma categoria"] + category_options
+    st.subheader("Sub-category distribution by category")
+    subcat_select_options = ["Select a category"] + category_options
     selected_category_detail = st.selectbox(
-        "Escolha uma categoria para visualizar as subcategorias",
+        "Choose a category to explore its sub-categories",
         options=subcat_select_options,
         index=0,
         key="subcat_detail_category",
     )
-    if selected_category_detail != "Selecione uma categoria":
+    if selected_category_detail != "Select a category":
         subcat_df = subcategory_distribution(filtered_df, selected_category_detail)
         if subcat_df.empty:
-            st.info("Nenhuma subcategoria disponível para a categoria selecionada.")
+            st.info("No sub-category data available for the selected category.")
         else:
             fig_subcat = px.pie(
                 subcat_df,
                 names="Sub-Category",
                 values="Total",
-                title=f"Subcategorias de {selected_category_detail}",
+                title=f"Sub-categories for {selected_category_detail}",
                 color_discrete_sequence=px.colors.sequential.Sunset,
             )
             style_pie_with_values(fig_subcat)
             st.plotly_chart(fig_subcat, use_container_width=True)
+            category_expenses = filtered_df[
+                (filtered_df["Category"] == selected_category_detail)
+                & (filtered_df["Amount"] < 0)
+            ].copy()
+            if not category_expenses.empty:
+                category_expenses_display = category_expenses.copy()
+                category_expenses_display["Amount"] = category_expenses_display["Amount"].abs()
+                if "Date" in category_expenses_display.columns:
+                    category_expenses_display["Date"] = category_expenses_display["Date"].dt.date
+                st.dataframe(
+                    category_expenses_display[
+                        [
+                            col
+                            for col in [
+                                "Date",
+                                "Description",
+                                "Sub-description",
+                                "Amount",
+                                "Category",
+                                "Sub-Category",
+                                "Account",
+                            ]
+                            if col in category_expenses_display.columns
+                        ]
+                    ],
+                    use_container_width=True,
+                )
+            else:
+                st.info("There are no expenses recorded for this category within the current filters.")
 
-    st.subheader("Histórico Completo de Transações")
+    history_columns = [
+        "Date",
+        "Description",
+        "Sub-description",
+        "Amount",
+        "Class",
+        "Category",
+        "Sub-Category",
+        "Account",
+    ]
+    available_history_cols = [c for c in history_columns if c in display_df.columns]
+
     if display_df.empty:
-        st.info("Nenhuma transação disponível para exibir.")
+        st.info("No transactions available to display.")
     else:
         history_df = display_df.copy()
         if "Date" in history_df.columns:
             history_df["Date"] = history_df["Date"].dt.date
-        history_columns = [
-            "Date",
-            "Description",
-            "Sub-description",
-            "Amount",
-            "Class",
-            "Category",
-            "Sub-Category",
-            "Account",
-        ]
-        available_history_cols = [c for c in history_columns if c in history_df.columns]
-        st.dataframe(history_df[available_history_cols], use_container_width=True)
+        st.subheader("Full transaction history")
+        with st.expander("Show / hide full transaction history", expanded=False):
+            st.dataframe(history_df[available_history_cols], use_container_width=True)
 
-    st.subheader("Histórico Completo de Ganhos")
-    earnings_history = display_df[display_df["Amount"] > 0].copy()
-    if earnings_history.empty:
-        st.info("Nenhum ganho registrado.")
-    else:
-        if "Date" in earnings_history.columns:
-            earnings_history["Date"] = earnings_history["Date"].dt.date
-        st.dataframe(
-            earnings_history[available_history_cols],
-            use_container_width=True,
-        )
-
-    st.subheader("Histórico Completo de Gastos")
-    expenses_history = display_df[display_df["Amount"] < 0].copy()
-    if expenses_history.empty:
-        st.info("Nenhum gasto registrado.")
-    else:
-        if "Date" in expenses_history.columns:
-            expenses_history["Date"] = expenses_history["Date"].dt.date
-        st.dataframe(
-            expenses_history[available_history_cols],
-            use_container_width=True,
-        )
-
-    st.subheader("Transações com Categoria 'Others'")
+    st.subheader("Transactions categorized as 'Others'")
     others_history = display_df[display_df["Category"] == "Others"].copy()
     if others_history.empty:
-        st.info("Nenhuma transação na categoria 'Others'.")
+        st.info("No transactions are currently categorized as 'Others'.")
     else:
         if "Date" in others_history.columns:
             others_history["Date"] = others_history["Date"].dt.date
@@ -747,13 +823,13 @@ def main() -> None:
             use_container_width=True,
         )
 
-    st.caption(f"{len(filtered_df):,} transações exibidas de {len(display_df):,} disponíveis.")
+    st.caption(f"{len(filtered_df):,} transactions shown out of {len(display_df):,} available.")
 
     csv_download = bank_df_classified.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="Baixar CSV Limpo (Completo)",
+        label="Download classified CSV",
         data=csv_download,
-        file_name="transacoes_classificadas.csv",
+        file_name="classified_transactions.csv",
         mime="text/csv",
     )
 
