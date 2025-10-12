@@ -22,16 +22,12 @@ data_reserve/
 # Exploratory notebooks
 notebooks/
 
-# Auxiliary config caches
+# Auxiliary config caches (legacy)
 config/llm_cache.csv
 config/category_rules.json
-
-# Old prototype scripts (not used by Streamlit app)
-src/app.py
-src/app1.py
-src/app2.py
-src/test.py
 
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+reserve/

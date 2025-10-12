@@ -1,6 +1,9 @@
-Date,Description,Sub-description,Amount,Category,Sub-Category
-2025-05-08,deposit,none,1000,previous money,parents money
-2025-05-12,deposit,Free Interac E-Transfer,5899,previous money,parents money
-2025-06-02,deposit,Free Interac E-Transfer,996.02,previous money,mine
-2025-06-09,abm deposit,none,600,previous money,parents money
-2025-06-30,deposit,Free Interac E-Transfer,626.59,previous money,parents money
+"Date","Description","Sub-description","Amount","Category","Sub-Category"
+"2025-05-08","deposit","none","1000","previous money","parents money"
+"2025-05-12","withdrawal","Free Interac E-Transfer","-900","Shopping","Electronics"
+"2025-05-12","deposit","Free Interac E-Transfer","5899","previous money","parents money"
+"2025-05-30","withdrawal","Free Interac E-Transfer","-260","Shopping","Electronics"
+"2025-05-30","withdrawal","Free Interac E-Transfer","-80","Shopping","Electronics"
+"2025-06-02","deposit","Free Interac E-Transfer","996.02","previous money","mine"
+"2025-06-09","abm deposit","none","600","previous money","parents money"
+"2025-06-30","deposit","Free Interac E-Transfer","626.59","previous money","parents money"
