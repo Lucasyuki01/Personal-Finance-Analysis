@@ -1,10 +1,5 @@
 ﻿Filter,Date,Description,Sub-description,Type of Transaction,Amount,Balance
-"All available transactions (up to 2 years), From date=2025-05-08","2025-10-01","customer transfer dr.","Mb-Transfer ","Debit","-464.52","1033.87"
-"","2025-10-01","deposit","Free Interac E-Transfer ","Credit","464.52","1498.39"
-"","2025-10-01","customer transfer dr.","Mb-Transfer ","Debit","-150.00","1033.87"
-"","2025-10-01","customer transfer dr.","Mb-Transfer ","Debit","-1200.00","1183.87"
-"","2025-09-29","interest"," ","Credit","0.02","2383.87"
-"","2025-09-23","customer transfer dr.","Mb-Transfer ","Debit","-55.53","2383.85"
+"All available transactions (up to 2 years), From date=2025-05-08","2025-09-23","customer transfer dr.","Mb-Transfer ","Debit","-55.53","2383.85"
 "","2025-09-19","deposit","Free Interac E-Transfer ","Credit","24.00","2439.38"
 "","2025-09-19","deposit","Free Interac E-Transfer ","Credit","11.53","2415.38"
 "","2025-09-19","customer transfer dr.","Mb-Transfer ","Debit","-435.00","2403.85"

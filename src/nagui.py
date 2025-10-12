@@ -19,6 +19,10 @@ REQUIRED_COLUMNS: Sequence[str] = (
     "Sub-Category",
 )
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+POS_RULES_PATH = BASE_DIR / "config" / "pos_rules.csv"
+MANUAL_OVERRIDES_PATH = BASE_DIR / "config" / "manual_overrides.csv"
+
 
 def normalize_text(s: str) -> str:
     t = (str(s) or "").lower().strip()
@@ -74,6 +78,8 @@ def classify_transactions(df: pd.DataFrame, pos_rules: List[Dict]) -> pd.DataFra
     df = df.copy()
 
     df["Class"] = "Expenses"
+    df.loc[df["Amount"] > 0, "Class"] = "Earnings"
+    df.loc[df["Amount"] < 0, "Class"] = "Expenses"
     df["Category"] = "Others"
     df["Sub-Category"] = "None"
 
@@ -116,78 +122,48 @@ def classify_transactions(df: pd.DataFrame, pos_rules: List[Dict]) -> pd.DataFra
     return df
 
 
-POS_RULES: List[Dict] = [
-    {"pattern": "compass", "category": "Bills", "sub_category": "Transport", "priority": 1, "match_type": "startswith"},
-    {"pattern": "compass vending", "category": "Bills", "sub_category": "Transport", "priority": 1, "match_type": "contains"},
-    {"pattern": "bcf-dep self se", "category": "Services", "sub_category": "Nanaimo", "priority": 2, "match_type": "contains"},
-    {"pattern": "bcf-dep self se", "category": "Services", "sub_category": "Nanaimo", "priority": 2, "match_type": "contains"},
-    {"pattern": "revenue services bc", "category": "Bills", "sub_category": "Msp", "priority": 2, "match_type": "contains"},
-    {"pattern": "abc*32130", "category": "Bills", "sub_category": "Gym", "priority": 2, "match_type": "contains"},
-    {"pattern": "walmart", "category": "Groceries", "sub_category": "None", "priority": 5, "match_type": "contains"},
-    {"pattern": "real cdn supers", "category": "Groceries", "sub_category": "None", "priority": 5, "match_type": "contains"},
-    {"pattern": "save on foods", "category": "Groceries", "sub_category": "None", "priority": 5, "match_type": "contains"},
-    {"pattern": "t t supermarket", "category": "Groceries", "sub_category": "None", "priority": 5, "match_type": "contains"},
-    {"pattern": "h-mart", "category": "Groceries", "sub_category": "None", "priority": 5, "match_type": "contains"},
-    {"pattern": "costco wholesal", "category": "Groceries", "sub_category": "None", "priority": 5, "match_type": "contains"},
-    {"pattern": "urban fare", "category": "Groceries", "sub_category": "None", "priority": 5, "match_type": "contains"},
-    {"pattern": "dollarama", "category": "Groceries", "sub_category": "Discount", "priority": 6, "match_type": "contains"},
-    {"pattern": "dollar tree", "category": "Groceries", "sub_category": "Discount", "priority": 6, "match_type": "contains"},
-    {"pattern": "london drugs", "category": "Groceries", "sub_category": "Pharmacy", "priority": 30, "match_type": "contains"},
-    {"pattern": "winners", "category": "Groceries", "sub_category": "Apparel", "priority": 30, "match_type": "contains"},
-    {"pattern": "7-eleven", "category": "Groceries", "sub_category": "None", "priority": 20, "match_type": "contains"},
-    {"pattern": "ins market", "category": "Groceries", "sub_category": "None", "priority": 20, "match_type": "contains"},
-    {"pattern": "liquor", "category": "Groceries", "sub_category": "Alcohol", "priority": 21, "match_type": "contains"},
-    {"pattern": "mcdonald", "category": "Eating Out", "sub_category": "Fast Food", "priority": 10, "match_type": "contains"},
-    {"pattern": "kfc", "category": "Eating Out", "sub_category": "Fast Food", "priority": 10, "match_type": "contains"},
-    {"pattern": "popeyes", "category": "Eating Out", "sub_category": "Fast Food", "priority": 10, "match_type": "contains"},
-    {"pattern": "subway", "category": "Eating Out", "sub_category": "Fast Food", "priority": 10, "match_type": "contains"},
-    {"pattern": "fatburger", "category": "Eating Out", "sub_category": "Burgers", "priority": 11, "match_type": "contains"},
-    {"pattern": "freshslice", "category": "Eating Out", "sub_category": "Pizza", "priority": 11, "match_type": "contains"},
-    {"pattern": "ramen", "category": "Eating Out", "sub_category": "Asian", "priority": 12, "match_type": "contains"},
-    {"pattern": "sushi", "category": "Eating Out", "sub_category": "Asian", "priority": 12, "match_type": "contains"},
-    {"pattern": "shawarma", "category": "Eating Out", "sub_category": "Middle Eastern", "priority": 12, "match_type": "contains"},
-    {"pattern": "tim hortons", "category": "Eating Out", "sub_category": "Cafe", "priority": 13, "match_type": "contains"},
-    {"pattern": "starbucks", "category": "Eating Out", "sub_category": "Cafe", "priority": 13, "match_type": "contains"},
-    {"pattern": "lee's donut", "category": "Eating Out", "sub_category": "Dessert", "priority": 14, "match_type": "contains"},
-    {"pattern": "rain or shi", "category": "Eating Out", "sub_category": "Dessert", "priority": 14, "match_type": "contains"},
-    {"pattern": "charlatan", "category": "Eating Out", "sub_category": "Bar", "priority": 2, "match_type": "contains"},
-    {"pattern": "hungry guys", "category": "Eating Out", "sub_category": "Bar", "priority": 2, "match_type": "contains"},
-    {"pattern": "mangos kitchen", "category": "Eating Out", "sub_category": "Asian", "priority": 2, "match_type": "contains"},
-    {"pattern": "bbq chicken", "category": "Eating Out", "sub_category": "Asian", "priority": 2, "match_type": "contains"},
-    {"pattern": "menya raizo", "category": "Eating Out", "sub_category": "Asian", "priority": 2, "match_type": "contains"},
-    {"pattern": "big way hot pot", "category": "Eating Out", "sub_category": "Asian", "priority": 2, "match_type": "contains"},
-    {"pattern": "tst-jerusalem", "category": "Eating Out", "sub_category": "Middle Eastern", "priority": 2, "match_type": "contains"},
-    {"pattern": "rio brazilian", "category": "Eating Out", "sub_category": "Latin", "priority": 2, "match_type": "contains"},
-    {"pattern": "boteco brasil", "category": "Eating Out", "sub_category": "Latin", "priority": 2, "match_type": "contains"},
-    {"pattern": "brazilliant", "category": "Eating Out", "sub_category": "Latin", "priority": 2, "match_type": "contains"},
-    {"pattern": "the old spaghet", "category": "Eating Out", "sub_category": "Italian", "priority": 2, "match_type": "contains"},
-    {"pattern": "trollers fish", "category": "Eating Out", "sub_category": "Canadian", "priority": 2, "match_type": "contains"},
-    {"pattern": "dip co. delight", "category": "Eating Out", "sub_category": "Canadian", "priority": 2, "match_type": "contains"},
-    {"pattern": "cactus club", "category": "Eating Out", "sub_category": "Apparel", "priority": 2, "match_type": "contains"},
-    {"pattern": "herschel", "category": "Shopping", "sub_category": "Apparel", "priority": 2, "match_type": "contains"},
-    {"pattern": "tommy hilfiger", "category": "Shopping", "sub_category": "Apparel", "priority": 2, "match_type": "contains"},
-    {"pattern": "roots mcarthur", "category": "Shopping", "sub_category": "Apparel", "priority": 2, "match_type": "contains"},
-    {"pattern": "under armour", "category": "Shopping", "sub_category": "Apparel", "priority": 2, "match_type": "contains"},
-    {"pattern": "best buy", "category": "Shopping", "sub_category": "Electronics", "priority": 30, "match_type": "contains"},
-    {"pattern": "sephora", "category": "Shopping", "sub_category": "Beauty", "priority": 30, "match_type": "contains"},
-    {"pattern": "decathlon", "category": "Shopping", "sub_category": "Sports", "priority": 30, "match_type": "contains"},
-    {"pattern": "sport chek", "category": "Shopping", "sub_category": "Sports", "priority": 30, "match_type": "contains"},
-    {"pattern": "uniqlo", "category": "Shopping", "sub_category": "Apparel", "priority": 30, "match_type": "contains"},
-    {"pattern": "nike", "category": "Shopping", "sub_category": "Apparel", "priority": 30, "match_type": "contains"},
-    {"pattern": "north face", "category": "Shopping", "sub_category": "Apparel", "priority": 30, "match_type": "contains"},
-    {"pattern": "browns shoes", "category": "Shopping", "sub_category": "Shoes", "priority": 30, "match_type": "contains"},
-    {"pattern": "shoppers drug", "category": "Shopping", "sub_category": "Barber machine", "priority": 2, "match_type": "contains"},
-    {"pattern": "daiso", "category": "Shopping", "sub_category": "Discount", "priority": 6, "match_type": "contains"},
-    {"pattern": "amzn mktp", "category": "Shopping", "sub_category": "Amazon", "priority": 40, "match_type": "contains"},
-    {"pattern": "aliexpress", "category": "Shopping", "sub_category": "AliExpress", "priority": 40, "match_type": "contains"},
-    {"pattern": "temu", "category": "Shopping", "sub_category": "Temu", "priority": 40, "match_type": "contains"},
-    {"pattern": "driver serv.cen", "category": "Services", "sub_category": "BCID", "priority": 2, "match_type": "contains"},
-    {"pattern": "jay hair salon", "category": "Services", "sub_category": "Hair cut", "priority": 2, "match_type": "contains"},
-    {"pattern": "cfs-safecheck", "category": "Services", "sub_category": "Certification", "priority": 2, "match_type": "contains"},
-    {"pattern": "name-cheap", "category": "Services", "sub_category": "Domains", "priority": 41, "match_type": "contains"},
-    {"pattern": "openai", "category": "Services", "sub_category": "Salon", "priority": 41, "match_type": "contains"},
-    {"pattern": "hair salon", "category": "Services", "sub_category": "Salon", "priority": 50, "match_type": "contains"},
-]
+def load_pos_rules() -> List[Dict]:
+    """Load POS classification rules from CSV."""
+    if not POS_RULES_PATH.exists():
+        raise FileNotFoundError(
+            f"POS rules file not found at {POS_RULES_PATH}. Please create it."
+        )
+
+    rules_df = pd.read_csv(POS_RULES_PATH)
+    required_cols = {"pattern", "category", "sub_category", "priority", "match_type"}
+    columns_map = {col.lower(): col for col in rules_df.columns}
+    missing_cols = required_cols.difference(columns_map.keys())
+    if missing_cols:
+        raise ValueError(f"POS rules CSV is missing columns: {', '.join(sorted(missing_cols))}")
+
+    rules_df = rules_df.rename(columns={columns_map[key]: key for key in required_cols})
+
+    rules_df["priority"] = pd.to_numeric(rules_df["priority"], errors="coerce").fillna(9999).astype(int)
+    rules_df["match_type"] = rules_df["match_type"].fillna("contains").str.lower()
+    rules_df["sub_category"] = rules_df["sub_category"].fillna("None")
+
+    return rules_df.to_dict(orient="records")
+
+
+def load_manual_overrides() -> pd.DataFrame:
+    """Load manual classification overrides from CSV."""
+    if not MANUAL_OVERRIDES_PATH.exists():
+        return pd.DataFrame(
+            columns=["Date", "Description", "Sub-description", "Amount", "Category", "Sub-Category"]
+        )
+
+    overrides = pd.read_csv(MANUAL_OVERRIDES_PATH)
+    expected_cols = {"Date", "Description", "Sub-description", "Amount", "Category", "Sub-Category"}
+    missing = expected_cols.difference(overrides.columns)
+    if missing:
+        raise ValueError(
+            f"Manual overrides CSV is missing columns: {', '.join(sorted(missing))}"
+        )
+    overrides["Date"] = pd.to_datetime(overrides["Date"], errors="coerce")
+    overrides["Amount"] = pd.to_numeric(overrides["Amount"], errors="coerce")
+    overrides = overrides.dropna(subset=["Date", "Description", "Amount", "Category"])
+    overrides["Sub-Category"] = overrides["Sub-Category"].fillna("None")
+    return overrides
 
 
 def load_bank_data() -> pd.DataFrame:
@@ -202,8 +178,8 @@ def load_bank_data() -> pd.DataFrame:
             f"Required dataset(s) not found in {data_dir}: {', '.join(missing)}"
         )
 
-    acc1 = pd.read_csv(acc1_path)
-    acc2 = pd.read_csv(acc2_path)
+    acc1 = pd.read_csv(acc1_path).copy()
+    acc2 = pd.read_csv(acc2_path).copy()
     acc1["Account"] = "Chequing"
     acc2["Account"] = "Savings"
 
@@ -226,30 +202,96 @@ def clean_bank_df(df_raw: pd.DataFrame) -> pd.DataFrame:
         df = df[df["Description"] != "customer transfer cr."]
         df = df[df["Description"] != "customer transfer dr."]
 
+    #if "Sub-description" in df.columns:
+    #    df["Sub-description"] = (
+    #        df["Sub-description"].fillna("none").replace("", "none")
+    #    )
+    #    mask_spaces = df["Sub-description"].astype(str).str.strip() == ""
+    #    df.loc[mask_spaces, "Sub-description"] = "none"
+    #else:
+    #    df["Sub-description"] = "none"
+
     if "Sub-description" in df.columns:
-        df["Sub-description"] = (
-            df["Sub-description"].fillna("none").replace("", "none")
-        )
-        mask_spaces = df["Sub-description"].astype(str).str.strip() == ""
-        df.loc[mask_spaces, "Sub-description"] = "none"
+        sub_desc = df["Sub-description"].fillna("").astype(str).str.strip()
+        sub_desc = sub_desc.replace("", "none")
+        df["Sub-description"] = sub_desc
     else:
         df["Sub-description"] = "none"
 
-    if {"Description", "Sub-description"}.issubset(df.columns):
-        mask_deposit_none = (df["Description"] == "deposit") & (
-            df["Sub-description"] == "none"
-        )
-        df = df[~mask_deposit_none]
+    # if {"Description", "Sub-description"}.issubset(df.columns):
+    #     mask_deposit_none = (df["Description"] == "deposit") & (
+    #         df["Sub-description"] == "none"
+    #     )
+    #     df = df[~mask_deposit_none]
 
-    if "Description" in df.columns:
-        df = df[df["Description"] != "abm deposit"]
+    # if "Description" in df.columns:
+    #     df = df[df["Description"] != "abm deposit"]
 
-    df = df.drop(index=[400, 397, 389, 349], errors="ignore")
+    # df = df.drop(index=[400, 397, 389, 349], errors="ignore")
 
     return df
 
 
-def classify_bank_df(df: pd.DataFrame) -> pd.DataFrame:
+def apply_manual_overrides(df: pd.DataFrame, overrides: pd.DataFrame) -> pd.DataFrame:
+    """Apply manual category overrides using Date/Description/Sub-description/Amount."""
+    if overrides.empty:
+        return df
+
+    df = df.copy()
+    key_cols = ["Date", "Description", "Sub-description", "Amount"]
+
+    def normalize_series(series: pd.Series) -> pd.Series:
+        return series.fillna("").astype(str).str.strip().str.lower()
+
+    overrides = overrides.copy()
+    overrides["Date_key"] = overrides["Date"].dt.normalize()
+    overrides["Description_key"] = normalize_series(overrides["Description"])
+    overrides["Sub-description_key"] = normalize_series(overrides["Sub-description"])
+
+    overrides_map = {
+        (
+            row["Date_key"],
+            row["Description_key"],
+            row["Sub-description_key"],
+            float(row["Amount"]),
+        ): (row["Category"], row["Sub-Category"])
+        for _, row in overrides.iterrows()
+    }
+
+    df["Date_key"] = df["Date"].dt.normalize()
+    df["Description_key"] = normalize_series(df["Description"])
+    df["Sub-description_key"] = normalize_series(df["Sub-description"])
+
+    mask = []
+    categories = []
+    subcats = []
+    for _, row in df.iterrows():
+        key = (
+            row["Date_key"],
+            row["Description_key"],
+            row["Sub-description_key"],
+            float(row["Amount"]),
+        )
+        override = overrides_map.get(key)
+        if override:
+            mask.append(True)
+            categories.append(override[0])
+            subcats.append(override[1])
+        else:
+            mask.append(False)
+            categories.append(row["Category"])
+            subcats.append(row["Sub-Category"])
+
+    mask = pd.Series(mask, index=df.index)
+    if mask.any():
+        df.loc[mask, "Category"] = pd.Series(categories, index=df.index)[mask]
+        df.loc[mask, "Sub-Category"] = pd.Series(subcats, index=df.index)[mask]
+
+    df = df.drop(columns=["Date_key", "Description_key", "Sub-description_key"])
+    return df
+
+
+def classify_bank_df(df: pd.DataFrame, pos_rules: List[Dict], overrides: pd.DataFrame) -> pd.DataFrame:
     """Run the classification and ensure required columns exist."""
     if df.empty:
         return df
@@ -257,14 +299,15 @@ def classify_bank_df(df: pd.DataFrame) -> pd.DataFrame:
     df["Amount"] = pd.to_numeric(df.get("Amount"), errors="coerce")
     df = df.dropna(subset=["Amount"])
 
-    df = classify_transactions(df, POS_RULES)
+    df["Date"] = pd.to_datetime(df.get("Date"), errors="coerce")
+    df = df.dropna(subset=["Date"])
+
+    df = classify_transactions(df, pos_rules)
+    df = apply_manual_overrides(df, overrides)
 
     for col in REQUIRED_COLUMNS:
         if col not in df.columns:
             df[col] = "Unknown"
-
-    df["Date"] = pd.to_datetime(df.get("Date"), errors="coerce")
-    df = df.dropna(subset=["Date"])
 
     for col in ("Class", "Category", "Sub-Category"):
         if col in df.columns:
@@ -340,6 +383,20 @@ def monthly_spending(df: pd.DataFrame) -> pd.DataFrame:
     return monthly
 
 
+def monthly_earnings(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate earnings per Year-Month."""
+    earnings = df[df["Amount"] > 0].copy()
+    if earnings.empty:
+        return pd.DataFrame(columns=["Month", "Total Earned"])
+    earnings["Month"] = earnings["Date"].dt.to_period("M").dt.to_timestamp()
+    monthly = (
+        earnings.groupby("Month", as_index=False)["Amount"]
+        .sum()
+        .rename(columns={"Amount": "Total Earned"})
+    )
+    return monthly
+
+
 def category_distribution(df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate absolute expenses per category."""
     expenses = df[df["Amount"] < 0]
@@ -353,8 +410,62 @@ def category_distribution(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def earnings_category_distribution(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate earnings totals per category."""
+    earnings = df[df["Amount"] > 0]
+    if earnings.empty:
+        return pd.DataFrame(columns=["Category", "Total Earned"])
+    return (
+        earnings.groupby("Category", as_index=False)["Amount"]
+        .sum()
+        .rename(columns={"Amount": "Total Earned"})
+    )
+
+
+def subcategory_distribution(df: pd.DataFrame, category: str) -> pd.DataFrame:
+    """Aggregate absolute totals per sub-category for a given category."""
+    subset = df[df["Category"] == category].copy()
+    if subset.empty:
+        return pd.DataFrame(columns=["Sub-Category", "Total"])
+    subset["Total"] = subset["Amount"].abs()
+    grouped = (
+        subset.groupby("Sub-Category", as_index=False)["Total"]
+        .sum()
+        .sort_values("Total", ascending=False)
+    )
+    return grouped
+
+
 def format_currency(value: float) -> str:
     return f"${value:,.2f}"
+
+
+def style_pie_with_values(fig) -> None:
+    """Show absolute values and percentages on pie chart slices."""
+    fig.update_traces(
+        texttemplate="%{label}<br>$%{value:,.2f}<br>%{percent:.1%}",
+        hovertemplate="%{label}<br>$%{value:,.2f}<br>%{percent:.1%}",
+        textposition="inside",
+    )
+    fig.update_layout(uniformtext_minsize=12, uniformtext_mode="hide")
+
+
+def earnings_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Return earnings rows sorted by date descending."""
+    earnings = df[df["Amount"] > 0].copy()
+    if earnings.empty:
+        return earnings
+    return earnings.sort_values("Date", ascending=False)
+
+
+def expense_stats(df: pd.DataFrame) -> Tuple[float, pd.DataFrame]:
+    """Return median spending (absolute) and DataFrame prepared for boxplot."""
+    expenses = df[df["Amount"] < 0].copy()
+    if expenses.empty:
+        return 0.0, pd.DataFrame(columns=["Spending"])
+    expenses["Spending"] = expenses["Amount"].abs()
+    median_val = float(expenses["Spending"].median())
+    return median_val, expenses
 
 
 def main() -> None:
@@ -373,24 +484,38 @@ def main() -> None:
         st.error("Nenhuma transação disponível após a limpeza obrigatória.")
         return
 
-    bank_df = classify_bank_df(bank_df_clean)
-    if bank_df.empty:
-        st.error("Nenhuma transação disponível após a classificação.")
+    try:
+        pos_rules = load_pos_rules()
+        manual_overrides = load_manual_overrides()
+    except (FileNotFoundError, ValueError) as exc:
+        st.error(str(exc))
         return
 
-    bank_df = bank_df.sort_values("Date").reset_index(drop=True)
+    bank_df_classified = classify_bank_df(bank_df_clean, pos_rules, manual_overrides)
+    if bank_df_classified.empty:
+        st.error("Nenhuma transação disponível após a classificação.")
+        return
+    bank_df_classified = bank_df_classified[bank_df_classified["Amount"] != 0].copy()
+    display_df = bank_df_classified.sort_values("Date").reset_index(drop=True)
 
-    min_date = bank_df["Date"].min().date()
-    max_date = bank_df["Date"].max().date()
+    min_date = display_df["Date"].min().date()
+    max_date = display_df["Date"].max().date()
 
     with st.sidebar:
         st.header("Filtros")
+        default_range = (min_date, max_date)
+        if "date_filter" not in st.session_state:
+            st.session_state["date_filter"] = default_range
         date_input = st.date_input(
             "Intervalo de datas",
-            value=(min_date, max_date),
+            value=st.session_state["date_filter"],
             min_value=min_date,
             max_value=max_date,
+            key="date_filter",
         )
+        if st.button("Mostrar todo o período"):
+            st.session_state["date_filter"] = default_range
+            st.experimental_rerun()
         if not isinstance(date_input, (list, tuple)) or len(date_input) != 2:
             st.error("Selecione as datas inicial e final.")
             return
@@ -399,21 +524,21 @@ def main() -> None:
             st.error("A data inicial deve ser menor ou igual à data final.")
             return
 
-        class_options = sorted(bank_df["Class"].dropna().unique().tolist())
+        class_options = sorted(display_df["Class"].dropna().unique().tolist())
         selected_classes = st.multiselect(
             "Class",
             options=class_options,
             default=class_options,
         )
 
-        category_options = sorted(bank_df["Category"].dropna().unique().tolist())
+        category_options = sorted(display_df["Category"].dropna().unique().tolist())
         selected_categories = st.multiselect(
             "Categoria",
             options=category_options,
             default=category_options,
         )
 
-        subcat_options = sorted(bank_df["Sub-Category"].dropna().unique().tolist())
+        subcat_options = sorted(display_df["Sub-Category"].dropna().unique().tolist())
         selected_subcats = st.multiselect(
             "Sub-Categoria",
             options=subcat_options,
@@ -428,45 +553,101 @@ def main() -> None:
         )
 
     filtered_df = apply_filters(
-        bank_df,
+        display_df,
         (pd.Timestamp(start_date), pd.Timestamp(end_date)),
         selected_classes,
         selected_categories,
         selected_subcats,
     )
 
+    earnings_df = earnings_table(filtered_df)
+    expense_median, expense_box_df = expense_stats(filtered_df)
+
     total_spent, total_earned, delta = compute_kpis(filtered_df)
-    kpi_cols = st.columns(3)
+    kpi_cols = st.columns(4)
     kpi_cols[0].metric("Total Spent", format_currency(total_spent))
     kpi_cols[1].metric("Total Earned", format_currency(total_earned))
     kpi_cols[2].metric("Delta", format_currency(delta))
+    kpi_cols[3].metric("Mediana dos Gastos", format_currency(expense_median))
 
     chart_col_1, chart_col_2 = st.columns(2)
 
     monthly_df = monthly_spending(filtered_df)
-    if monthly_df.empty:
-        chart_col_1.info("Sem despesas no período selecionado.")
-    else:
-        fig_monthly = px.bar(
-            monthly_df,
-            x="Month",
-            y="Total Spent",
-            title="Despesas Mensais (apenas gastos)",
-            labels={"Month": "Mês", "Total Spent": "Total gasto"},
-        )
-        chart_col_1.plotly_chart(fig_monthly, use_container_width=True)
+    with chart_col_1:
+        if monthly_df.empty:
+            st.info("Sem despesas no período selecionado.")
+        else:
+            fig_monthly = px.bar(
+                monthly_df,
+                x="Month",
+                y="Total Spent",
+                title="Despesas Mensais (apenas gastos)",
+                labels={"Month": "Mês", "Total Spent": "Total gasto"},
+                color_discrete_sequence=px.colors.sequential.OrRd,
+            )
+            st.plotly_chart(fig_monthly, use_container_width=True)
+
+        monthly_earnings_df = monthly_earnings(filtered_df)
+        if monthly_earnings_df.empty:
+            st.info("Sem ganhos no período selecionado.")
+        else:
+            fig_earnings = px.bar(
+                monthly_earnings_df,
+                x="Month",
+                y="Total Earned",
+                title="Ganhos Mensais",
+                labels={"Month": "Mês", "Total Earned": "Total ganho"},
+                color_discrete_sequence=px.colors.sequential.Blues,
+            )
+            st.plotly_chart(fig_earnings, use_container_width=True)
 
     category_df = category_distribution(filtered_df)
-    if category_df.empty:
-        chart_col_2.info("Sem distribuição de categorias para exibir.")
+    earnings_category_df = earnings_category_distribution(filtered_df)
+    with chart_col_2:
+        if category_df.empty:
+            st.info("Sem distribuição de categorias de gastos.")
+        else:
+            fig_category = px.pie(
+                category_df,
+                names="Category",
+                values="Total Spent",
+                title="Distribuição de Despesas por Categoria",
+                color_discrete_sequence=px.colors.sequential.YlOrRd,
+            )
+            style_pie_with_values(fig_category)
+            st.plotly_chart(fig_category, use_container_width=True)
+
+        if earnings_category_df.empty:
+            st.info("Sem distribuição de categorias de ganhos.")
+        else:
+            fig_category_earnings = px.pie(
+                earnings_category_df,
+                names="Category",
+                values="Total Earned",
+                title="Distribuição de Ganhos por Categoria",
+                color_discrete_sequence=px.colors.sequential.Blues_r,
+            )
+            style_pie_with_values(fig_category_earnings)
+            st.plotly_chart(fig_category_earnings, use_container_width=True)
+
+    st.subheader("Ganhos no Período")
+    if earnings_df.empty:
+        st.info("Não há ganhos no período selecionado.")
     else:
-        fig_category = px.pie(
-            category_df,
-            names="Category",
-            values="Total Spent",
-            title="Distribuição de Despesas por Categoria",
-        )
-        chart_col_2.plotly_chart(fig_category, use_container_width=True)
+        earnings_display = earnings_df.copy()
+        if "Date" in earnings_display.columns:
+            earnings_display["Date"] = earnings_display["Date"].dt.date
+        earnings_columns = [
+            "Date",
+            "Description",
+            "Sub-description",
+            "Amount",
+            "Category",
+            "Sub-Category",
+            "Account",
+        ]
+        available_columns = [c for c in earnings_columns if c in earnings_display.columns]
+        st.dataframe(earnings_display[available_columns], use_container_width=True)
 
     st.subheader("Top 10 Maiores Despesas")
     top10_df = top10_expenses(filtered_df, selected_category)
@@ -487,7 +668,94 @@ def main() -> None:
             top10_display["Date"] = top10_display["Date"].dt.date
         st.dataframe(top10_display[available_columns], use_container_width=True)
 
-    st.caption(f"{len(filtered_df):,} transações exibidas de {len(bank_df):,} disponíveis.")
+    st.subheader("Distribuição de Subcategorias por Categoria")
+    subcat_select_options = ["Selecione uma categoria"] + category_options
+    selected_category_detail = st.selectbox(
+        "Escolha uma categoria para visualizar as subcategorias",
+        options=subcat_select_options,
+        index=0,
+        key="subcat_detail_category",
+    )
+    if selected_category_detail != "Selecione uma categoria":
+        subcat_df = subcategory_distribution(filtered_df, selected_category_detail)
+        if subcat_df.empty:
+            st.info("Nenhuma subcategoria disponível para a categoria selecionada.")
+        else:
+            fig_subcat = px.pie(
+                subcat_df,
+                names="Sub-Category",
+                values="Total",
+                title=f"Subcategorias de {selected_category_detail}",
+                color_discrete_sequence=px.colors.sequential.Sunset,
+            )
+            style_pie_with_values(fig_subcat)
+            st.plotly_chart(fig_subcat, use_container_width=True)
+
+    st.subheader("Histórico Completo de Transações")
+    if display_df.empty:
+        st.info("Nenhuma transação disponível para exibir.")
+    else:
+        history_df = display_df.copy()
+        if "Date" in history_df.columns:
+            history_df["Date"] = history_df["Date"].dt.date
+        history_columns = [
+            "Date",
+            "Description",
+            "Sub-description",
+            "Amount",
+            "Class",
+            "Category",
+            "Sub-Category",
+            "Account",
+        ]
+        available_history_cols = [c for c in history_columns if c in history_df.columns]
+        st.dataframe(history_df[available_history_cols], use_container_width=True)
+
+    st.subheader("Histórico Completo de Ganhos")
+    earnings_history = display_df[display_df["Amount"] > 0].copy()
+    if earnings_history.empty:
+        st.info("Nenhum ganho registrado.")
+    else:
+        if "Date" in earnings_history.columns:
+            earnings_history["Date"] = earnings_history["Date"].dt.date
+        st.dataframe(
+            earnings_history[available_history_cols],
+            use_container_width=True,
+        )
+
+    st.subheader("Histórico Completo de Gastos")
+    expenses_history = display_df[display_df["Amount"] < 0].copy()
+    if expenses_history.empty:
+        st.info("Nenhum gasto registrado.")
+    else:
+        if "Date" in expenses_history.columns:
+            expenses_history["Date"] = expenses_history["Date"].dt.date
+        st.dataframe(
+            expenses_history[available_history_cols],
+            use_container_width=True,
+        )
+
+    st.subheader("Transações com Categoria 'Others'")
+    others_history = display_df[display_df["Category"] == "Others"].copy()
+    if others_history.empty:
+        st.info("Nenhuma transação na categoria 'Others'.")
+    else:
+        if "Date" in others_history.columns:
+            others_history["Date"] = others_history["Date"].dt.date
+        st.dataframe(
+            others_history[available_history_cols],
+            use_container_width=True,
+        )
+
+    st.caption(f"{len(filtered_df):,} transações exibidas de {len(display_df):,} disponíveis.")
+
+    csv_download = bank_df_classified.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Baixar CSV Limpo (Completo)",
+        data=csv_download,
+        file_name="transacoes_classificadas.csv",
+        mime="text/csv",
+    )
 
 
 if __name__ == "__main__":

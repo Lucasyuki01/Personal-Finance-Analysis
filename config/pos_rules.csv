@@ -1,0 +1,129 @@
+pattern,category,sub_category,priority,match_type
+compass,Bills,Transport,1,startswith
+compass vending,Bills,Transport,1,contains
+bcf-dep self se,Services,Nanaimo,2,contains
+revenue services bc,Bills,Msp,2,contains
+abc*32130,Bills,Gym,2,contains
+walmart,Groceries,None,5,contains
+real cdn supers,Groceries,None,5,contains
+save on foods,Groceries,None,5,contains
+t t supermarket,Groceries,None,5,contains
+h-mart,Groceries,None,5,contains
+costco wholesal,Groceries,None,5,contains
+urban fare,Groceries,None,5,contains
+ls konbiniya,Groceries,None,5,contains
+simon's no fril,Groceries,None,5,contains
+dollarama,Groceries,Discount,6,contains
+dollar tree,Groceries,Discount,6,contains
+london drugs,Groceries,Pharmacy,30,contains
+winners,Groceries,Apparel,30,contains
+7-eleven,Groceries,None,20,contains
+ins market,Groceries,None,20,contains
+liquor,Groceries,Alcohol,21,contains
+mcdonald,Eating Out,Fast Food,10,contains
+kfc,Eating Out,Fast Food,10,contains
+popeyes,Eating Out,Fast Food,10,contains
+subway,Eating Out,Fast Food,10,contains
+mister ice,Eating Out,Dessert,14,contains
+romano's pizza,Eating Out,Pizza,11,contains
+taco bell,Eating Out,Fast Food,10,contains
+101 boba,Eating Out,Dessert,14,contains
+third beach con,Eating Out,Snack,14,contains
+mr. supreme,Eating Out,Middle Eastern,12,contains
+nayax canada,Eating Out,Snack,14,contains
+ricardo's,Eating Out,Restaurant,12,contains
+a w,Eating Out,Fast Food,10,contains
+javawocky,Eating Out,Cafe,13,contains
+mon petit choux,Eating Out,Dessert,14,contains
+edo,Eating Out,Asian,12,contains
+whatafood,Eating Out,Latin,12,contains
+kaisereck d,Eating Out,European,12,contains
+fresh donair,Eating Out,Middle Eastern,12,contains
+blenz,Eating Out,Cafe,13,contains
+uncle tetsu,Eating Out,Dessert,14,contains
+chicko chicken,Eating Out,Asian,12,contains
+kosoo korean,Eating Out,Asian,12,contains
+guu gastown,Eating Out,Asian,12,contains
+oakberry,Eating Out,Dessert,14,contains
+bourbon st. gri,Eating Out,Bar,12,contains
+tobys pub,Eating Out,Bar,12,contains
+global harbor c,Eating Out,Snack,14,contains
+breka bakery,Eating Out,Dessert,14,contains
+honey doughnuts,Eating Out,Dessert,14,contains
+fatburger,Eating Out,Burgers,11,contains
+freshslice,Eating Out,Pizza,11,contains
+ramen,Eating Out,Asian,12,contains
+sushi,Eating Out,Asian,12,contains
+shawarma,Eating Out,Middle Eastern,12,contains
+tim hortons,Eating Out,Cafe,13,contains
+starbucks,Eating Out,Cafe,13,contains
+lee's donut,Eating Out,Dessert,14,contains
+rain or shi,Eating Out,Dessert,14,contains
+charlatan,Eating Out,Bar,2,contains
+hungry guys,Eating Out,Bar,2,contains
+mangos kitchen,Eating Out,Asian,2,contains
+bbq chicken,Eating Out,Asian,2,contains
+menya raizo,Eating Out,Asian,2,contains
+big way hot pot,Eating Out,Asian,2,contains
+tst-jerusalem,Eating Out,Middle Eastern,2,contains
+rio brazilian,Eating Out,Latin,2,contains
+boteco brasil,Eating Out,Latin,2,contains
+brazilliant,Eating Out,Latin,2,contains
+the old spaghet,Eating Out,Italian,2,contains
+trollers fish,Eating Out,Canadian,2,contains
+dip co. delight,Eating Out,Canadian,2,contains
+cactus club,Eating Out,Apparel,2,contains
+herschel,Shopping,Apparel,2,contains
+tommy hilfiger,Shopping,Apparel,2,contains
+roots mcarthur,Shopping,Apparel,2,contains
+under armour,Shopping,Apparel,2,contains
+best buy,Shopping,Electronics,30,contains
+sephora,Shopping,Beauty,30,contains
+decathlon,Shopping,Sports,30,contains
+sport chek,Shopping,Sports,30,contains
+uniqlo,Shopping,Apparel,30,contains
+nike,Shopping,Apparel,30,contains
+north face,Shopping,Apparel,30,contains
+browns shoes,Shopping,Shoes,30,contains
+shoppers drug,Shopping,Barber machine,2,contains
+thriftique,Shopping,Discount,6,contains
+vapes and conve,Shopping,Vape,20,contains
+bass pro,Shopping,Sports,30,contains
+u frame,Shopping,Services,30,contains
+daiso,Shopping,Discount,6,contains
+amzn mktp,Shopping,Amazon,40,contains
+aliexpress,Shopping,AliExpress,40,contains
+temu,Shopping,Temu,40,contains
+apple store,Shopping,Electronics,2,contains
+driver serv.cen,Services,BCID,2,contains
+jay hair salon,Services,Hair cut,2,contains
+cfs-safecheck,Services,Certification,2,contains
+name-cheap,Services,Domains,41,contains
+openai,Services,Salon,41,contains
+hair salon,Services,Salon,50,contains
+bcf-hsb self serve,Services,Transport,2,contains
+immigration canada,Services,Government,5,contains
+a&w,Eating Out,Fast Food,10,contains
+jollibee,Eating Out,Fast Food,10,contains
+la pache pizza,Eating Out,Pizza,11,contains
+good co,Eating Out,Bar,12,contains
+yogen fruz,Eating Out,Dessert,14,contains
+the butcher,Eating Out,Restaurant,12,contains
+fat burger,Eating Out,Burgers,11,contains
+wendy's,Eating Out,Fast Food,10,contains
+shoprite smoke,Shopping,Convenience,20,contains
+stuart's,Eating Out,Snack,14,contains
+ann trading,Shopping,Convenience,20,contains
+g and a robot,Entertainment,Arcade,25,contains
+konbiniya japan,Groceries,None,5,contains
+coffee bar,Eating Out,Cafe,13,contains
+gelato express,Eating Out,Dessert,14,contains
+hellcrust,Eating Out,Pizza,11,contains
+home depot,Shopping,Home Improvement,30,contains
+santa barbara,Groceries,Market,5,contains
+print print,Services,Printing,30,contains
+pizza hut,Eating Out,Pizza,11,contains
+grouse mountain,Entertainment,Leisure,25,contains
+n s h enterpris,Services,Vending,20,contains
+google *services,Services,Digital,30,contains
+sq *emeri goods,Shopping,Market,30,contains

@@ -1,7 +1,5 @@
 ﻿Filter,Date,Description,Sub-description,Type of Transaction,Amount,Balance
-"All available transactions (up to 2 years), From date=2025-05-08","2025-10-11","pos purchase","Apos Tim Hortons #35     Vanco ","Debit","-3.14","3742.86"
-"","2025-10-11","pos purchase","Apos A W #0854           Vanco ","Debit","-5.24","3746.00"
-"","2025-10-10","pos purchase","Apos Global Harbor C     Burna ","Debit","-3.92","3751.24"
+"All available transactions (up to 2 years), From date=2025-05-08","2025-10-10","pos purchase","Apos Global Harbor C     Burna ","Debit","-3.92","3751.24"
 "","2025-10-10","pos purchase","Apos Mr. Shawarma Ro     Richm ","Debit","-10.91","3755.16"
 "","2025-10-10","payroll deposit","Snowbank Brands ","Credit","584.63","3766.07"
 "","2025-10-09","pos purchase","Apos Mcdonald'S #402     Vanco ","Debit","-8.70","3181.44"
