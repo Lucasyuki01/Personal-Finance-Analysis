@@ -618,6 +618,19 @@ def main() -> None:
                 color_discrete_sequence=px.colors.sequential.OrRd,
             )
             st.plotly_chart(fig_monthly, use_container_width=True)
+            avg_monthly_expense = float(monthly_df["Total Spent"].mean())
+            st.caption(f"Average monthly expenses: {format_currency(avg_monthly_expense)}")
+            if not expenses_in_period.empty:
+                exp_tmp = expenses_in_period.copy()
+                exp_tmp["AbsAmount"] = exp_tmp["Amount"].abs()
+                q1 = exp_tmp["AbsAmount"].quantile(0.25)
+                q3 = exp_tmp["AbsAmount"].quantile(0.75)
+                iqr = q3 - q1
+                upper = q3 + 1.5 * iqr
+                mask = (exp_tmp["AbsAmount"] <= upper) | exp_tmp["Sub-Category"].fillna("").str.lower().eq("rent")
+                trimmed_series = exp_tmp.loc[mask, "AbsAmount"]
+                trimmed_mean = float(trimmed_series.mean()) if not trimmed_series.empty else float(exp_tmp["AbsAmount"].mean())
+                #st.caption(f"Average monthly expenses (without outliers): {format_currency(trimmed_mean)}")
 
     with expenses_pie_col:
         if category_df.empty:
@@ -674,6 +687,8 @@ def main() -> None:
                 color_discrete_sequence=px.colors.sequential.Blues,
             )
             st.plotly_chart(fig_earnings, use_container_width=True)
+            avg_monthly_income = float(monthly_earnings_df["Total Earned"].mean())
+            st.caption(f"Average monthly earnings: {format_currency(avg_monthly_income)}")
 
     with earnings_pie_col:
         if earnings_category_df.empty:
@@ -880,4 +895,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
 
