@@ -1,12 +1,31 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
-
+import json
+import logging
+import os
 import re
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
+try:  # Optional helper for loading .env files
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - fallback if dependency missing
+    load_dotenv = None  # type: ignore[assignment]
+
+try:  # New SDK (>= 1.0)
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - optional dependency
+    OpenAI = None  # type: ignore[assignment]
+
+try:  # Legacy SDK support
+    import openai as openai_legacy
+except ImportError:  # pragma: no cover - optional dependency
+    openai_legacy = None
 
 
 REQUIRED_COLUMNS: Sequence[str] = (
@@ -23,6 +42,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 POS_RULES_PATH = BASE_DIR / "config" / "pos_rules.csv"
 MANUAL_OVERRIDES_PATH = BASE_DIR / "config" / "manual_overrides.csv"
 
+if load_dotenv:
+    load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+OPENAI_POS_MODEL = os.getenv("OPENAI_POS_MODEL", "gpt-4o-mini")
+try:
+    OPENAI_POS_MAX_ATTEMPTS = int(os.getenv("OPENAI_POS_MAX_ATTEMPTS", "3"))
+except ValueError:
+    OPENAI_POS_MAX_ATTEMPTS = 3
+
+POS_CLASSIFIER_SYSTEM_PROMPT = (
+    "You are a meticulous financial assistant that tags Canadian debit point-of-sale "
+    "transactions with a strict taxonomy. Only choose categories from the provided list "
+    "and always answer with compact JSON containing the keys 'category' and 'sub_category'."
+)
+_OPENAI_CHAT_CLIENT: Optional[Any] = None
+
 
 def normalize_text(s: str) -> str:
     t = (str(s) or "").lower().strip()
@@ -30,73 +67,323 @@ def normalize_text(s: str) -> str:
     return t
 
 
-def classify_pos_purchase(df: pd.DataFrame, rules: List[Dict]) -> pd.DataFrame:
-    """
-    Aplica as regras de classificação POS (point of sale) apenas às linhas
-    em que a coluna 'Description' seja igual a 'pos purchase'.
-    A primeira regra correspondente é a que prevalece (First match wins),
-    e as regras são avaliadas em ordem crescente de prioridade.
-    """
+def _llm_is_available() -> bool:
+    """Return True if the OpenAI client can be used."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return False
+    return (OpenAI is not None) or (openai_legacy is not None)
 
-    # Cria uma cópia independente do DataFrame original.
-    # O nome permanece "df" por conveniência, mas não afeta o objeto original fora da função.
+
+def _get_openai_chat_client() -> Optional[Any]:
+    """Instantiate the OpenAI client once to avoid re-creating sessions."""
+    global _OPENAI_CHAT_CLIENT  # pylint: disable=global-statement
+    if OpenAI is None:
+        return None
+    if _OPENAI_CHAT_CLIENT is None:
+        _OPENAI_CHAT_CLIENT = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return _OPENAI_CHAT_CLIENT
+
+
+def _content_to_text(content: Any) -> str:
+    """Convert SDK-dependent message content into plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            text = ""
+            if isinstance(block, dict):
+                text = block.get("text", "")
+            else:
+                text = getattr(block, "text", "")
+            if text:
+                parts.append(str(text))
+        return "\n".join(parts).strip()
+    return str(content).strip()
+
+
+def _call_openai_chat(messages: Sequence[Dict[str, str]]) -> str:
+    """Call the OpenAI API with retries, returning the response text."""
+    if not _llm_is_available():
+        raise RuntimeError("OpenAI API is not configured for POS classification.")
+
+    last_error: Optional[Exception] = None
+    for attempt in range(1, OPENAI_POS_MAX_ATTEMPTS + 1):
+        try:
+            if OpenAI is not None:
+                client = _get_openai_chat_client()
+                if client is None:
+                    raise RuntimeError("OpenAI SDK was not initialized.")
+                response = client.chat.completions.create(
+                    model=OPENAI_POS_MODEL,
+                    messages=messages,
+                    temperature=0,
+                )
+                content = response.choices[0].message.content
+                return _content_to_text(content)
+
+            if openai_legacy is not None:
+                openai_legacy.api_key = os.getenv("OPENAI_API_KEY")
+                response = openai_legacy.ChatCompletion.create(
+                    model=OPENAI_POS_MODEL,
+                    messages=messages,
+                    temperature=0,
+                )
+                content = response["choices"][0]["message"]["content"]
+                return str(content).strip()
+
+            raise RuntimeError("OpenAI SDK is not installed.")
+        except Exception as exc:  # noqa: BLE001 - retry on any API failure
+            last_error = exc
+            if attempt >= OPENAI_POS_MAX_ATTEMPTS:
+                break
+            time.sleep(min(2**attempt, 10))
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Unable to obtain a response from OpenAI.")
+
+
+def _extract_classification_payload(raw_text: str) -> Optional[Dict[str, Any]]:
+    """Parse the JSON payload returned by the LLM."""
+    if not raw_text:
+        return None
+
+    cleaned = raw_text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?", "", cleaned).strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+
+    if cleaned.count("{") > 1:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start != -1 and end != -1:
+            cleaned = cleaned[start : end + 1]
+
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None
+
+    return payload if isinstance(payload, dict) else None
+
+
+def _build_category_catalog(rules: List[Dict]) -> Dict[str, List[str]]:
+    """Create a dictionary of categories -> allowed sub-categories."""
+    catalog: Dict[str, set] = {}
+    for rule in rules:
+        category = str(rule.get("category", "Others") or "Others").strip() or "Others"
+        sub_category = str(rule.get("sub_category", "None") or "None").strip() or "None"
+        catalog.setdefault(category, set()).add(sub_category)
+
+    if "Others" not in catalog:
+        catalog["Others"] = {"None"}
+
+    return {cat: sorted(subs) for cat, subs in catalog.items()}
+
+
+def _catalog_to_text(catalog: Dict[str, List[str]]) -> str:
+    """Render the taxonomy as bullet points for the prompt."""
+    lines = []
+    for category in sorted(catalog.keys()):
+        subcats = catalog[category]
+        subcats_text = ", ".join(subcats) if subcats else "None"
+        lines.append(f"- {category}: {subcats_text}")
+    return "\n".join(lines)
+
+
+def _normalize_category(candidate: str, catalog: Dict[str, List[str]]) -> str:
+    """Map user-provided category to the closest allowed option."""
+    if candidate:
+        candidate_norm = candidate.strip().lower()
+        for category in catalog.keys():
+            if category.lower() == candidate_norm:
+                return category
+    return "Others" if "Others" in catalog else next(iter(catalog))
+
+
+def _normalize_sub_category(category: str, candidate: str, catalog: Dict[str, List[str]]) -> str:
+    """Ensure the selected sub-category exists inside the chosen category."""
+    allowed = catalog.get(category, [])
+    if candidate:
+        candidate_norm = candidate.strip().lower()
+        for subcat in allowed:
+            if subcat.lower() == candidate_norm:
+                return subcat
+    if "None" in allowed:
+        return "None"
+    return allowed[0] if allowed else "None"
+
+
+def _build_transaction_summary(row: pd.Series) -> str:
+    """Structure the transaction information for the prompt."""
+    details = []
+
+    date_value = row.get("Date")
+    if pd.notna(date_value):
+        try:
+            date_str = pd.to_datetime(date_value).date().isoformat()
+        except Exception:  # noqa: BLE001 - fallback to string
+            date_str = str(date_value)
+        details.append(f"Date: {date_str}")
+
+    account = str(row.get("Account", "") or "Unknown").strip()
+    details.append(f"Account: {account}")
+
+    amount = row.get("Amount", 0.0)
+    try:
+        amount_value = float(amount)
+    except (TypeError, ValueError):
+        amount_value = 0.0
+    details.append(f"Amount (CAD): {amount_value:.2f}")
+
+    merchant = str(row.get("Sub-description", "") or "").strip() or "n/a"
+    details.append(f"Merchant descriptor: {merchant}")
+
+    description = str(row.get("Description", "") or "").strip()
+    if description:
+        details.append(f"Bank description: {description}")
+
+    extra = ""
+    for key in ("Memo", "Details", "Notes"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            extra = value.strip()
+            break
+    if extra:
+        details.append(f"Additional detail: {extra}")
+
+    return "\n".join(details)
+
+
+def _classify_single_pos_row(row: pd.Series, catalog: Dict[str, List[str]]) -> Tuple[str, str]:
+    """Call the LLM and return (Category, Sub-Category) for a row."""
+    taxonomy_text = _catalog_to_text(catalog)
+    transaction_text = _build_transaction_summary(row)
+    user_prompt = (
+        "Allowed categories and sub-categories:\n"
+        f"{taxonomy_text}\n\n"
+        "Classify the following point-of-sale transaction:\n"
+        f"{transaction_text}\n\n"
+        "Answer strictly in JSON with the keys 'category' and 'sub_category'."
+    )
+
+    try:
+        response_text = _call_openai_chat(
+            [
+                {"role": "system", "content": POS_CLASSIFIER_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001 - propagate fallback
+        logger.warning("OpenAI POS classification failed: %s", exc)
+        return "Others", "None"
+
+    payload = _extract_classification_payload(response_text)
+    if not payload:
+        logger.warning("Could not parse POS classification response: %s", response_text)
+        return "Others", "None"
+
+    raw_category = str(payload.get("category", "") or "").strip()
+    raw_sub_category = str(payload.get("sub_category", "") or "None").strip()
+    category = _normalize_category(raw_category, catalog)
+    sub_category = _normalize_sub_category(category, raw_sub_category, catalog)
+    return category, sub_category
+
+
+def _classify_pos_purchase_with_rules(
+    df: pd.DataFrame,
+    rules_sorted: List[Dict],
+    is_pos: pd.Series,
+    sub_norm: pd.Series,
+) -> pd.DataFrame:
+    """Apply the legacy rule-based classification as a fallback."""
+
+    matched = pd.Series(False, index=df.index)
+    for r in rules_sorted:
+        pattern = r["pattern"].lower()
+        match_type = r.get("match_type", "contains")
+
+        if match_type == "startswith":
+            mask = is_pos & ~matched & sub_norm.str.startswith(pattern)
+        elif match_type == "regex":
+            mask = is_pos & ~matched & sub_norm.map(lambda x: bool(r["_compiled"].search(x)))
+        else:
+            mask = is_pos & ~matched & sub_norm.str.contains(re.escape(pattern), regex=True)
+
+        if mask.any():
+            df.loc[mask, "Category"] = r["category"]
+            df.loc[mask, "Sub-Category"] = r.get("sub_category", "None")
+            matched |= mask
+
+    still_pos_unmatched = is_pos & ~matched
+    df.loc[still_pos_unmatched, ["Category", "Sub-Category"]] = ["Others", "None"]
+    return df
+
+
+def _classify_pos_purchase_with_llm(
+    df: pd.DataFrame,
+    rules_sorted: List[Dict],
+    is_pos: pd.Series,
+) -> pd.DataFrame:
+    """Classify POS rows using the OpenAI LLM."""
+
+    catalog = _build_category_catalog(rules_sorted)
+    classification_cache: Dict[Tuple[str, float, str], Tuple[str, str]] = {}
+    pos_indices = df.index[is_pos]
+    for idx in pos_indices:
+        row = df.loc[idx]
+        descriptor = normalize_text(row.get("Sub-description", ""))
+        account = normalize_text(row.get("Account", ""))
+        amount = row.get("Amount", 0.0)
+        try:
+            amount_value = float(amount)
+        except (TypeError, ValueError):
+            amount_value = 0.0
+        cache_key = (descriptor, round(amount_value, 2), account)
+
+        classification = classification_cache.get(cache_key)
+        if classification is None:
+            classification = _classify_single_pos_row(row, catalog)
+            classification_cache[cache_key] = classification
+
+        df.loc[idx, ["Category", "Sub-Category"]] = classification
+
+    return df
+
+
+def classify_pos_purchase(df: pd.DataFrame, rules: List[Dict]) -> pd.DataFrame:
+    """Classify POS rows via OpenAI when possible, falling back to rules."""
+
     df = df.copy()
 
-    # Normaliza os textos da coluna 'Description' e 'Sub-description'
-    # - A normalização garante comparações consistentes (sem letras maiúsculas, acentos, etc.)
-    # - Apenas as linhas com Description == "pos purchase" serão consideradas
     is_pos = df["Description"].fillna("").map(normalize_text).eq("pos purchase")
     sub_norm = df["Sub-description"].fillna("").map(normalize_text)
 
-    # Garante que as colunas de destino existam
     if "Category" not in df.columns:
         df["Category"] = "Others"
     if "Sub-Category" not in df.columns:
         df["Sub-Category"] = "None"
 
-    # Ordena as regras pela prioridade (menor número = maior prioridade)
-    # e pré-compila as expressões regulares para acelerar a busca
+    if not is_pos.any():
+        return df
+
     rules_sorted = sorted(rules, key=lambda r: r.get("priority", 9999))
     for r in rules_sorted:
         if r.get("match_type") == "regex":
             r["_compiled"] = re.compile(r["pattern"], flags=re.I)
 
-    # Cria uma série booleana para acompanhar quais linhas já foram classificadas
-    matched = pd.Series(False, index=df.index)
+    if _llm_is_available():
+        try:
+            return _classify_pos_purchase_with_llm(df, rules_sorted, is_pos)
+        except Exception as exc:  # noqa: BLE001 - fallback to deterministic rules
+            logger.warning("Falling back to rule-based POS classification: %s", exc)
 
-    # Aplica as regras, uma a uma, em ordem de prioridade
-    for r in rules_sorted:
-        pattern = r["pattern"].lower()
-        match_type = r.get("match_type", "contains")
-
-        # Define o tipo de correspondência de acordo com a regra
-        if match_type == "startswith":
-            # Começa com o padrão especificado
-            mask = is_pos & ~matched & sub_norm.str.startswith(pattern)
-
-        elif match_type == "regex":
-            # Aplica correspondência usando regex pré-compilado (ignora maiúsculas/minúsculas)
-            mask = is_pos & ~matched & sub_norm.map(lambda x: bool(r["_compiled"].search(x)))
-
-        else:
-            # Caso padrão: busca se o padrão aparece dentro do texto (contains)
-            # Usa re.escape para evitar interpretar caracteres especiais como regex
-            mask = is_pos & ~matched & sub_norm.str.contains(re.escape(pattern), regex=True)
-
-        # Se alguma linha corresponder à regra, atualiza a categoria e subcategoria
-        if mask.any():
-            df.loc[mask, "Category"] = r["category"]
-            df.loc[mask, "Sub-Category"] = r.get("sub_category", "None")
-            # Marca as linhas correspondentes para evitar reclassificação por regras seguintes
-            matched |= mask
-
-    # Para transações POS que não foram classificadas por nenhuma regra,
-    # define como "Others" e "None" por padrão
-    still_pos_unmatched = is_pos & ~matched
-    df.loc[still_pos_unmatched, ["Category", "Sub-Category"]] = ["Others", "None"]
-
-    # Retorna o DataFrame com as classificações aplicadas
-    return df
+    return _classify_pos_purchase_with_rules(df, rules_sorted, is_pos, sub_norm)
 
 
 def classify_transactions(df: pd.DataFrame, pos_rules: List[Dict]) -> pd.DataFrame:
