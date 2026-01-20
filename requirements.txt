@@ -11,3 +11,4 @@ tenacity
 python-dotenv
 openpyxl
 matplotlib
+pytest

@@ -4,11 +4,25 @@ venv/
 ENV/
 env/
 
-# Python cache and logs
+# Python cache and test artifacts
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Logs
 *.log
 
 # Local secrets / config
@@ -18,16 +32,21 @@ __pycache__/
 # Raw data (keep private)
 data/
 data_reserve/
+reserve/
 
 # Exploratory notebooks
 notebooks/
+.ipynb_checkpoints/
 
 # Auxiliary config caches (legacy)
 config/llm_cache.csv
 config/category_rules.json
 
+# IDEs
+.vscode/
+.idea/
+*.code-workspace
+
 # OS artifacts
 .DS_Store
 Thumbs.db
-
-reserve/
