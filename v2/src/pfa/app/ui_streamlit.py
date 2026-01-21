@@ -1,7 +1,9 @@
 from pathlib import Path
 import sys
+from typing import List, Optional
 import pandas as pd
 import streamlit as st
+import plotly.express as px
 
 
 SRC_DIR = Path(__file__).resolve().parents[2]
@@ -78,16 +80,58 @@ def _run_pipeline(uploads) -> None:
 
 
 def _render_views(canonical_df: pd.DataFrame) -> None:
+    st.subheader("Summary")
+    _render_summary(canonical_df)
+
     st.subheader("Views")
+    _render_flow_section("Profits", view_profits(canonical_df), is_waste=False)
+    _render_flow_section("Wastes", view_wastes(canonical_df), is_waste=True)
+    _render_simple_view("Card Purchases", view_card_purchases(canonical_df))
+    _render_simple_view("Account Expenses", view_account_expenses(canonical_df))
+    _render_simple_view("Fixed Wastes", view_fixed_wastes(canonical_df))
 
-    _render_view("Profits", view_profits(canonical_df))
-    _render_view("Wastes", view_wastes(canonical_df))
-    _render_view("Card Purchases", view_card_purchases(canonical_df))
-    _render_view("Account Expenses", view_account_expenses(canonical_df))
-    _render_view("Fixed Wastes", view_fixed_wastes(canonical_df))
+
+def _render_summary(canonical_df: pd.DataFrame) -> None:
+    profits_df = view_profits(canonical_df)
+    wastes_df = view_wastes(canonical_df)
+    total_earned = _amount_series(profits_df).sum()
+    total_spent = _amount_series(wastes_df).abs().sum()
+    difference = total_earned - total_spent
+
+    col_earned, col_spent, col_diff = st.columns(3)
+    col_earned.metric("Total earned", _format_amount(total_earned))
+    col_spent.metric("Total spent", _format_amount(total_spent))
+    col_diff.metric("Difference", _format_amount(difference))
 
 
-def _render_view(
+def _render_flow_section(
+    title: str,
+    view_df: pd.DataFrame,
+    is_waste: bool,
+) -> None:
+    st.markdown(f"### {title}")
+
+    row_count = len(view_df)
+    amounts = _amount_series(view_df)
+    if is_waste:
+        amounts = amounts.abs()
+    total_amount = _format_amount(amounts.sum())
+    st.write(f"Rows: {row_count:,} | Total amount: {total_amount}")
+
+    if view_df.empty:
+        st.info("No data available for this view.")
+        return
+
+    col_bar, col_pie = st.columns(2)
+    with col_bar:
+        _render_monthly_bar_chart(view_df, title, is_waste=is_waste)
+    with col_pie:
+        _render_category_pie_chart(view_df, title, is_waste=is_waste)
+
+    st.dataframe(view_df, use_container_width=True)
+
+
+def _render_simple_view(
     title: str,
     view_df: pd.DataFrame,
 ) -> None:
@@ -100,11 +144,113 @@ def _render_view(
     st.dataframe(view_df, use_container_width=True)
 
 
-def _sum_amount(df: pd.DataFrame) -> str:
+def _render_monthly_bar_chart(
+    view_df: pd.DataFrame,
+    title: str,
+    is_waste: bool,
+) -> None:
+    monthly = _monthly_totals(view_df, is_waste=is_waste)
+    if monthly.empty:
+        st.info("No monthly data available for this view.")
+        return
+
+    palette = _flow_palette(is_waste)
+    bar_color = palette[4] if len(palette) > 4 else palette[-1]
+    fig = px.bar(
+        monthly,
+        x="Month",
+        y="Total",
+        labels={"Month": "Month", "Total": "Total"},
+        title=f"{title} per month",
+    )
+    fig.update_traces(marker_color=bar_color)
+    fig.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_category_pie_chart(
+    view_df: pd.DataFrame,
+    title: str,
+    is_waste: bool,
+) -> None:
+    categories = _category_totals(view_df, is_waste=is_waste)
+    if categories.empty:
+        st.info("No category data available for this view.")
+        return
+
+    fig = px.pie(
+        categories,
+        names="Category",
+        values="Total",
+        title=f"{title} by category",
+        color_discrete_sequence=_flow_palette(is_waste),
+    )
+    fig.update_traces(textposition="inside", textinfo="percent+label")
+    fig.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _monthly_totals(df: pd.DataFrame, is_waste: bool) -> pd.DataFrame:
+    date_col = _pick_column(df, ["date", "transaction_date"])
+    if date_col is None:
+        return pd.DataFrame()
+
+    dates = pd.to_datetime(df[date_col], errors="coerce")
+    valid_mask = dates.notna()
+    if not valid_mask.any():
+        return pd.DataFrame()
+
+    amounts = _amount_series(df).abs() if is_waste else _amount_series(df)
+    amounts = amounts.loc[valid_mask]
+    months = dates.loc[valid_mask].dt.to_period("M").dt.to_timestamp()
+    grouped = amounts.groupby(months).sum().sort_index()
+    return pd.DataFrame({"Month": grouped.index, "Total": grouped.values})
+
+
+def _category_totals(df: pd.DataFrame, is_waste: bool) -> pd.DataFrame:
+    category_col = _pick_column(df, ["category", "class", "sub_class"])
+    if category_col is None:
+        return pd.DataFrame()
+
+    category_values = (
+        df[category_col]
+        .fillna("Unclassified")
+        .astype(str)
+        .str.strip()
+        .replace("", "Unclassified")
+    )
+    amounts = _amount_series(df).abs() if is_waste else _amount_series(df)
+    grouped = amounts.groupby(category_values).sum().sort_values(ascending=False)
+    return pd.DataFrame({"Category": grouped.index, "Total": grouped.values})
+
+
+def _pick_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+    lowered = {col.lower(): col for col in df.columns}
+    for name in candidates:
+        key = name.lower()
+        if key in lowered:
+            return lowered[key]
+    return None
+
+
+def _flow_palette(is_waste: bool) -> List[str]:
+    if is_waste:
+        return px.colors.sequential.Reds
+    return px.colors.sequential.Greens
+
+
+def _amount_series(df: pd.DataFrame) -> pd.Series:
     if "Amount" not in df.columns:
-        return "n/a"
-    series = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
-    return f"{float(series.sum()):,.2f}"
+        return pd.Series(0, index=df.index)
+    return pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+
+
+def _sum_amount(df: pd.DataFrame) -> str:
+    return _format_amount(_amount_series(df).sum())
+
+
+def _format_amount(value: float) -> str:
+    return f"{float(value):,.2f}"
 
 
 if __name__ == "__main__":
