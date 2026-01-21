@@ -1,3 +1,5 @@
+import re
+
 import pandas as pd
 
 from pfa.constants import TRANSFER_DESCRIPTIONS
@@ -18,7 +20,8 @@ def mark_inter_account_transfers(df: pd.DataFrame) -> pd.DataFrame:
     if "excluded_reason" not in df.columns:
         df["excluded_reason"] = pd.NA
 
-    mask = df["description_norm"].isin(TRANSFER_DESCRIPTIONS)
+    pattern = "|".join(re.escape(value) for value in TRANSFER_DESCRIPTIONS)
+    mask = df["description_norm"].str.contains(pattern, na=False)
     df.loc[mask, "excluded_reason"] = "inter_account_transfer"
     return df
 
@@ -30,4 +33,3 @@ def filter_analysis_ready(df: pd.DataFrame) -> pd.DataFrame:
 
     excluded = df["excluded_reason"].fillna("").astype(str).str.strip()
     return df[excluded.eq("")].copy()
-

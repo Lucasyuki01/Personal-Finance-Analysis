@@ -50,7 +50,14 @@ def add_canonical_fields(df: pd.DataFrame, processing_version: str) -> pd.DataFr
             )
 
     if "flow_type" not in df.columns:
-        df["flow_type"] = DEFAULT_FLOW_TYPE
+        df["flow_type"] = _infer_flow_type_from_amount(df)
+    else:
+        flow_values = df["flow_type"].fillna("").astype(str).str.strip().str.lower()
+        needs_infer = flow_values.eq("") | flow_values.eq(DEFAULT_FLOW_TYPE)
+        if needs_infer.any():
+            df.loc[needs_infer, "flow_type"] = _infer_flow_type_from_amount(
+                df.loc[needs_infer]
+            )
 
     if "channel" not in df.columns:
         df["channel"] = df["description_norm"].eq("pos purchase").map(
@@ -76,3 +83,12 @@ def add_canonical_fields(df: pd.DataFrame, processing_version: str) -> pd.DataFr
 
     return df
 
+
+def _infer_flow_type_from_amount(df: pd.DataFrame) -> pd.Series:
+    if "Amount" not in df.columns:
+        return pd.Series(DEFAULT_FLOW_TYPE, index=df.index)
+    amounts = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    inferred = pd.Series(DEFAULT_FLOW_TYPE, index=df.index)
+    inferred = inferred.mask(amounts.gt(0), "profit")
+    inferred = inferred.mask(amounts.lt(0), "waste")
+    return inferred

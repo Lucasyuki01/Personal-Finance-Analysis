@@ -5,24 +5,28 @@ import pandas as pd
 
 def view_profits(df: pd.DataFrame) -> pd.DataFrame:
     """Return rows classified as profits."""
+    df = _analysis_ready(df)
     flow_type = _lower_series(df, "flow_type")
     return df.loc[flow_type.eq("profit")].copy()
 
 
 def view_wastes(df: pd.DataFrame) -> pd.DataFrame:
     """Return rows classified as wastes."""
+    df = _analysis_ready(df)
     flow_type = _lower_series(df, "flow_type")
     return df.loc[flow_type.eq("waste")].copy()
 
 
 def view_card_purchases(df: pd.DataFrame) -> pd.DataFrame:
     """Return rows tagged as card transactions."""
+    df = _analysis_ready(df)
     channel = _lower_series(df, "channel")
     return df.loc[channel.eq("card")].copy()
 
 
 def view_account_expenses(df: pd.DataFrame) -> pd.DataFrame:
     """Return rows tagged as account expenses."""
+    df = _analysis_ready(df)
     channel = _lower_series(df, "channel")
     amount_series = _amount_series(df)
     return df.loc[channel.eq("account") & amount_series.lt(0)].copy()
@@ -30,9 +34,17 @@ def view_account_expenses(df: pd.DataFrame) -> pd.DataFrame:
 
 def view_fixed_wastes(df: pd.DataFrame) -> pd.DataFrame:
     """Return rows tagged as fixed wastes."""
+    df = _analysis_ready(df)
     if "is_fixed_waste" not in df.columns:
         return df.iloc[0:0].copy()
     return df.loc[df["is_fixed_waste"].fillna(False).astype(bool)].copy()
+
+
+def _analysis_ready(df: pd.DataFrame) -> pd.DataFrame:
+    if "excluded_reason" not in df.columns:
+        return df
+    excluded = df["excluded_reason"].fillna("").astype(str).str.strip()
+    return df.loc[excluded.eq("")]
 
 
 def _lower_series(df: pd.DataFrame, column: str) -> pd.Series:
