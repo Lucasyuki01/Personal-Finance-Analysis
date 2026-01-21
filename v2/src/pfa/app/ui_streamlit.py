@@ -1,6 +1,7 @@
 from pathlib import Path
+import io
 import sys
-from typing import List, Optional
+from typing import Dict, List, Optional
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -33,6 +34,9 @@ def main() -> None:
     if st.session_state.get("run_pipeline_clicked"):
         st.session_state["run_pipeline_clicked"] = False
         _run_pipeline(uploads)
+    if st.session_state.get("load_canonical_clicked"):
+        st.session_state["load_canonical_clicked"] = False
+        _load_canonical()
 
     canonical_df = st.session_state.get("canonical_df")
     if canonical_df is not None:
@@ -52,6 +56,8 @@ def _sidebar_controls():
         st.checkbox("Apply classification rules", key="apply_rules")
         if st.button("Run pipeline"):
             st.session_state["run_pipeline_clicked"] = True
+        if st.button("Load saved canonical"):
+            st.session_state["load_canonical_clicked"] = True
     return uploads
 
 
@@ -79,9 +85,25 @@ def _run_pipeline(uploads) -> None:
         st.success(f"Canonical dataset saved to {OUTPUT_PATH}")
 
 
+def _load_canonical() -> None:
+    if not OUTPUT_PATH.exists():
+        st.error(f"No saved canonical dataset found at {OUTPUT_PATH}")
+        return
+
+    try:
+        canonical_df = pd.read_parquet(OUTPUT_PATH)
+    except Exception as exc:  # noqa: BLE001 - surface load errors
+        st.error(f"Failed to load canonical dataset: {exc}")
+        return
+
+    st.session_state["canonical_df"] = canonical_df
+    st.success(f"Loaded canonical dataset from {OUTPUT_PATH}")
+
+
 def _render_views(canonical_df: pd.DataFrame) -> None:
     st.subheader("Summary")
     _render_summary(canonical_df)
+    _render_download(canonical_df)
 
     st.subheader("Views")
     _render_flow_section("Profits", view_profits(canonical_df), is_waste=False)
@@ -103,6 +125,28 @@ def _render_summary(canonical_df: pd.DataFrame) -> None:
     col_spent.metric("Total spent", _format_amount(total_spent))
     col_diff.metric("Difference", _format_amount(difference))
 
+
+def _render_download(canonical_df: pd.DataFrame) -> None:
+    file_name = OUTPUT_PATH.name
+    data = None
+    if OUTPUT_PATH.exists():
+        try:
+            data = OUTPUT_PATH.read_bytes()
+        except OSError:
+            data = None
+
+    if data is None:
+        buffer = io.BytesIO()
+        canonical_df.to_parquet(buffer, index=False)
+        buffer.seek(0)
+        data = buffer.read()
+
+    st.download_button(
+        "Download canonical dataset",
+        data=data,
+        file_name=file_name,
+        mime="application/octet-stream",
+    )
 
 def _render_flow_section(
     title: str,
@@ -128,7 +172,8 @@ def _render_flow_section(
     with col_pie:
         _render_category_pie_chart(view_df, title, is_waste=is_waste)
 
-    st.dataframe(view_df, use_container_width=True)
+    table_df = _flow_table(view_df)
+    st.dataframe(table_df, use_container_width=True)
 
 
 def _render_simple_view(
@@ -231,6 +276,30 @@ def _pick_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
         if key in lowered:
             return lowered[key]
     return None
+
+
+def _flow_table(df: pd.DataFrame) -> pd.DataFrame:
+    columns_map = [
+        ("date", ["date", "transaction_date"]),
+        ("sub-description", ["sub-description", "sub_description"]),
+        ("class", ["class", "category"]),
+        ("sub-class", ["sub-class", "sub_class", "sub_category"]),
+        ("amount", ["amount"]),
+    ]
+    selected: List[str] = []
+    rename_map: Dict[str, str] = {}
+    for target, candidates in columns_map:
+        source = _pick_column(df, candidates)
+        if source is None:
+            continue
+        selected.append(source)
+        rename_map[source] = target
+
+    if not selected:
+        return df
+
+    table_df = df.loc[:, selected].copy()
+    return table_df.rename(columns=rename_map)
 
 
 def _flow_palette(is_waste: bool) -> List[str]:

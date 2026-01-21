@@ -9,6 +9,7 @@ from pfa.pipeline.clean import compute_missing_stats, initial_clean
 from pfa.pipeline.enrich import add_canonical_fields
 from pfa.pipeline.exclusions import filter_analysis_ready, mark_inter_account_transfers
 from pfa.pipeline.ingest import ingest_tables, ingest_uploads
+from pfa.pipeline.llm_classify import classify_card_expenses
 from pfa.utils.detection import processing_markers_status
 from rules.apply import apply_rules
 
@@ -107,6 +108,7 @@ def _run_pipeline_on_df(
             rules_df,
             overwrite_manual=overwrite_manual,
         )
+    canonical = classify_card_expenses(canonical, rules_df=rules_df)
     analysis_ready = filter_analysis_ready(canonical)
 
     manifest = build_manifest(
