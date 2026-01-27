@@ -58,6 +58,7 @@ DEFAULT_TAXONOMY: Dict[str, List[str]] = {
     "Eating Out": [
         "Fast food",
         "Bar",
+        "Cafe",
         "Japanese",
         "Korean",
         "Arabic",
@@ -69,6 +70,21 @@ DEFAULT_TAXONOMY: Dict[str, List[str]] = {
     "Entertainment": ["Cinema", "Tourism", "Lime", "Hotel"],
     "Services": ["Uber", "Lyft", "Other services"],
 }
+
+WASTE_TAXONOMY = DEFAULT_TAXONOMY
+PROFIT_TAXONOMY: Dict[str, List[str]] = {
+    "Salary": ["Janitor", "Oakberry", "Zara", "Others"],
+    "Sponsors": ["Parents", "Others"],
+    "Previous Money": ["Mine", "Others"],
+    "Earnings": ["Others"],
+    "Refunds": ["Others"],
+    "Others": ["Others"],
+}
+MANUAL_TAXONOMY: Dict[str, List[str]] = {
+    **WASTE_TAXONOMY,
+    **PROFIT_TAXONOMY,
+}
+CARD_EXPENSE_TAXONOMY = WASTE_TAXONOMY
 
 CARD_CLASSIFIER_SYSTEM_PROMPT = (
     "You are a careful financial assistant. "
@@ -88,6 +104,8 @@ def classify_card_expenses(
 ) -> pd.DataFrame:
     if df.empty:
         return df.copy()
+    if not _llm_enabled():
+        return df.copy()
     if not _llm_is_available():
         return df.copy()
 
@@ -96,7 +114,7 @@ def classify_card_expenses(
     if not eligible.any():
         return df
 
-    catalog = _build_catalog(rules_df)
+    catalog = _build_catalog(rules_df, base_taxonomy=CARD_EXPENSE_TAXONOMY)
     classification_cache: Dict[str, Tuple[str, str]] = {}
 
     for idx in df.index[eligible]:
@@ -121,6 +139,11 @@ def _llm_is_available() -> bool:
     if not api_key:
         return False
     return (OpenAI is not None) or (openai_legacy is not None)
+
+
+def _llm_enabled() -> bool:
+    flag = os.getenv("PFA_ENABLE_LLM", "1")
+    return flag.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _get_openai_chat_client() -> Optional[Any]:
@@ -216,14 +239,17 @@ def _extract_payload(raw_text: str) -> Optional[Dict[str, Any]]:
     return payload if isinstance(payload, dict) else None
 
 
-def _build_catalog(rules_df: Optional[pd.DataFrame]) -> Dict[str, List[str]]:
+def _build_catalog(
+    rules_df: Optional[pd.DataFrame],
+    base_taxonomy: Dict[str, List[str]],
+) -> Dict[str, List[str]]:
     if rules_df is None or rules_df.empty:
-        return DEFAULT_TAXONOMY.copy()
+        return base_taxonomy.copy()
 
     class_col = _pick_column(rules_df, ["set_class", "class", "category"])
     sub_col = _pick_column(rules_df, ["set_sub_class", "sub_class", "sub_category"])
     if class_col is None:
-        return DEFAULT_TAXONOMY.copy()
+        return base_taxonomy.copy()
 
     if "is_active" in rules_df.columns:
         rules_df = rules_df[rules_df["is_active"].fillna(False).astype(bool)]
@@ -244,10 +270,14 @@ def _build_catalog(rules_df: Optional[pd.DataFrame]) -> Dict[str, List[str]]:
                 sub_category = sub_candidate
         catalog.setdefault(category, set()).add(sub_category)
 
-    if not catalog:
-        return DEFAULT_TAXONOMY.copy()
+    if base_taxonomy:
+        allowed = set(base_taxonomy.keys())
+        catalog = {key: values for key, values in catalog.items() if key in allowed}
 
-    if FALLBACK_CLASS not in catalog:
+    if not catalog:
+        return base_taxonomy.copy()
+
+    if FALLBACK_CLASS not in catalog and FALLBACK_CLASS in base_taxonomy:
         catalog[FALLBACK_CLASS] = {FALLBACK_SUB_CLASS}
 
     return {cat: sorted(subs) for cat, subs in catalog.items()}
