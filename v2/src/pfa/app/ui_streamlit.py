@@ -129,9 +129,13 @@ def _load_canonical(apply_manual: bool) -> None:
 
 
 def _render_views(canonical_df: pd.DataFrame) -> None:
+    canonical_df = _ensure_short_id(canonical_df)
     st.subheader("Summary")
     _render_summary(canonical_df)
     _render_download(canonical_df)
+
+    st.subheader("Transaction Lookup")
+    _render_transaction_lookup(canonical_df)
 
     st.subheader("Unclassified")
     _render_unclassified_section(canonical_df)
@@ -179,6 +183,18 @@ def _render_download(canonical_df: pd.DataFrame) -> None:
         mime="application/octet-stream",
     )
 
+
+def _ensure_short_id(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "transaction_id" not in df.columns:
+        return df
+    if "short_id" in df.columns and df["short_id"].notna().any():
+        return df
+    updated = df.copy()
+    updated["short_id"] = (
+        updated["transaction_id"].astype(str).str.slice(0, 4)
+    )
+    return updated
+
 def _render_flow_section(
     title: str,
     view_df: pd.DataFrame,
@@ -220,6 +236,7 @@ def _render_flow_section(
 
     table_df = _flow_table(view_df)
     st.dataframe(table_df, use_container_width=True)
+    _render_manual_editor(title, view_df)
 
 
 def _render_simple_view(
@@ -403,6 +420,7 @@ def _pick_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
 
 def _flow_table(df: pd.DataFrame) -> pd.DataFrame:
     columns_map = [
+        ("id", ["short_id", "transaction_id"]),
         ("date", ["date", "transaction_date"]),
         ("sub-description", ["sub-description", "sub_description"]),
         ("class", ["class", "category"]),
@@ -573,6 +591,7 @@ def _build_transaction_labels(
     only_unmodified: bool,
     order_by: str,
 ) -> Tuple[List[str], Dict[str, str]]:
+    short_id_col = _pick_column(view_df, ["short_id"])
     date_col = _pick_column(view_df, ["date", "transaction_date"])
     sub_desc_col = _pick_column(view_df, ["sub-description", "sub_description"])
     amount_col = _pick_column(view_df, ["amount"])
@@ -612,7 +631,11 @@ def _build_transaction_labels(
         except (TypeError, ValueError):
             amount_num = 0.0
 
-        label = f"{date_value} | {sub_desc_value} | {amount_text}"
+        short_id = _safe_string(row.get(short_id_col)) if short_id_col else ""
+        if short_id:
+            label = f"{short_id} | {date_value} | {sub_desc_value} | {amount_text}"
+        else:
+            label = f"{date_value} | {sub_desc_value} | {amount_text}"
         labels[transaction_id] = label
         items.append((parsed_date, amount_num, transaction_id, is_modified))
 
@@ -750,6 +773,79 @@ def _persist_manual_override(
         write_parquet(updated_canonical, OUTPUT_PATH)
 
     return len(updates)
+
+
+def _render_transaction_lookup(canonical_df: pd.DataFrame) -> None:
+    if canonical_df.empty or "transaction_id" not in canonical_df.columns:
+        st.info("No transaction IDs available.")
+        return
+
+    id_col = "short_id" if "short_id" in canonical_df.columns else "transaction_id"
+    tx_input = st.text_input(
+        f"Search by {id_col}",
+        value="",
+        key="transaction_id_lookup",
+    ).strip()
+    if not tx_input:
+        st.caption("Enter a transaction_id to edit its class/sub-class.")
+        return
+
+    matched = canonical_df[canonical_df[id_col].astype(str).eq(tx_input)]
+    if matched.empty:
+        st.warning("No transaction found for that ID.")
+        return
+
+    if len(matched) > 1:
+        options = matched["transaction_id"].astype(str).tolist()
+        labels = {
+            tid: _safe_string(matched.loc[matched["transaction_id"].astype(str).eq(tid), "short_id"].iloc[0])
+            for tid in options
+        }
+        selected_tid = st.selectbox(
+            "Multiple matches found. Pick one transaction_id",
+            options=options,
+            format_func=lambda value: labels.get(value, value),
+            key="transaction_id_lookup_select",
+        )
+        row = matched[matched["transaction_id"].astype(str).eq(selected_tid)].iloc[0]
+    else:
+        row = matched.iloc[0]
+    st.write("Match:")
+    st.dataframe(_flow_table(matched), use_container_width=True)
+
+    class_options = sorted(MANUAL_TAXONOMY.keys())
+    current_class = _safe_string(row.get("class"))
+    class_index = class_options.index(current_class) if current_class in class_options else 0
+    selected_class = st.selectbox(
+        "Class",
+        options=class_options,
+        index=class_index,
+        key="lookup_class_select",
+    )
+
+    sub_options = MANUAL_TAXONOMY.get(selected_class, [])
+    current_sub = _safe_string(row.get("sub_class"))
+    sub_index = sub_options.index(current_sub) if current_sub in sub_options else 0
+    selected_sub = st.selectbox(
+        "Sub-class",
+        options=sub_options,
+        index=sub_index,
+        key="lookup_sub_class_select",
+    )
+
+    if st.button("Save transaction edit", key="lookup_save"):
+        saved_count = _persist_manual_override(
+            str(row.get("transaction_id")),
+            selected_class,
+            selected_sub,
+            row,
+            apply_to_all=False,
+        )
+        if saved_count:
+            st.success("Manual classification saved.")
+            st.rerun()
+        else:
+            st.info("No manual changes detected.")
 
 
 def _match_transaction_ids_by_sub_description(

@@ -49,6 +49,15 @@ def add_canonical_fields(df: pd.DataFrame, processing_version: str) -> pd.DataFr
                 _row_transaction_id, axis=1
             )
 
+    if "short_id" not in df.columns:
+        df["short_id"] = df["transaction_id"].astype(str).str.slice(0, 4)
+    else:
+        missing_mask = df["short_id"].isna()
+        if missing_mask.any():
+            df.loc[missing_mask, "short_id"] = (
+                df.loc[missing_mask, "transaction_id"].astype(str).str.slice(0, 4)
+            )
+
     if "flow_type" not in df.columns:
         df["flow_type"] = _infer_flow_type_from_amount(df)
     else:
