@@ -341,7 +341,11 @@ def _render_unclassified_section(canonical_df: pd.DataFrame) -> None:
 
     table_df = _flow_table(unclassified_df)
     st.dataframe(table_df, use_container_width=True)
-    _render_manual_editor("Unclassified", unclassified_df)
+    _render_manual_editor(
+        "Unclassified",
+        unclassified_df,
+        allow_unmodified_toggle=False,
+    )
 
     if st.button("Undo last manual classification", key="undo_manual"):
         removed = _undo_last_manual_override()
@@ -378,22 +382,40 @@ def _unclassified_manual_view(canonical_df: pd.DataFrame) -> pd.DataFrame:
     return combined.loc[class_default & sub_default].copy()
 
 
-def _render_manual_editor(title: str, view_df: pd.DataFrame) -> None:
+def _render_manual_editor(
+    title: str,
+    view_df: pd.DataFrame,
+    allow_unmodified_toggle: bool = True,
+) -> None:
     if view_df.empty or "transaction_id" not in view_df.columns:
         return
 
-    manual_ids = _manual_override_ids()
-
     with st.expander(f"Edit {title} classification", expanded=False):
-        show_only_unmodified = st.checkbox(
-            "Show only unmodified",
-            value=True,
-            key=f"{title.lower()}_show_unmodified",
+        manual_ids = _manual_override_ids()
+        show_only_unmodified = False
+        if allow_unmodified_toggle:
+            show_only_unmodified = st.checkbox(
+                "Show only unmodified",
+                value=True,
+                key=f"{title.lower()}_show_unmodified",
+            )
+        order_by = st.selectbox(
+            "Order by",
+            options=[
+                "Default",
+                "Date (newest first)",
+                "Date (oldest first)",
+                "Amount (high to low)",
+                "Amount (low to high)",
+            ],
+            index=0,
+            key=f"{title.lower()}_order_by",
         )
         transaction_ids, labels = _build_transaction_labels(
             view_df,
             manual_ids=manual_ids,
             only_unmodified=show_only_unmodified,
+            order_by=order_by,
         )
         if not transaction_ids:
             st.info("No unmodified transactions available.")
@@ -457,14 +479,14 @@ def _build_transaction_labels(
     view_df: pd.DataFrame,
     manual_ids: Set[str],
     only_unmodified: bool,
+    order_by: str,
 ) -> Tuple[List[str], Dict[str, str]]:
     date_col = _pick_column(view_df, ["date", "transaction_date"])
     sub_desc_col = _pick_column(view_df, ["sub-description", "sub_description"])
     amount_col = _pick_column(view_df, ["amount"])
 
     labels: Dict[str, str] = {}
-    unmodified_ids: List[str] = []
-    modified_ids: List[str] = []
+    items: List[Tuple[Optional[pd.Timestamp], float, str, bool]] = []
     for _, row in view_df.iterrows():
         transaction_id = row.get("transaction_id")
         if pd.isna(transaction_id):
@@ -478,9 +500,11 @@ def _build_transaction_labels(
             continue
 
         date_value = row.get(date_col) if date_col else ""
+        parsed_date = None
         if pd.notna(date_value):
             try:
-                date_value = pd.to_datetime(date_value).date().isoformat()
+                parsed_date = pd.to_datetime(date_value)
+                date_value = parsed_date.date().isoformat()
             except Exception:  # noqa: BLE001 - fallback to string
                 date_value = str(date_value)
         else:
@@ -490,14 +514,27 @@ def _build_transaction_labels(
         sub_desc_value = _safe_string(sub_desc_value) or "n/a"
 
         amount_value = row.get(amount_col) if amount_col else ""
-        amount_value = _safe_string(amount_value)
+        amount_text = _safe_string(amount_value)
+        try:
+            amount_num = float(amount_value)
+        except (TypeError, ValueError):
+            amount_num = 0.0
 
-        label = f"{date_value} | {sub_desc_value} | {amount_value}"
+        label = f"{date_value} | {sub_desc_value} | {amount_text}"
         labels[transaction_id] = label
-        if is_modified:
-            modified_ids.append(transaction_id)
-        else:
-            unmodified_ids.append(transaction_id)
+        items.append((parsed_date, amount_num, transaction_id, is_modified))
+
+    if order_by == "Date (newest first)":
+        items.sort(key=lambda x: (x[0] is None, x[0]), reverse=True)
+    elif order_by == "Date (oldest first)":
+        items.sort(key=lambda x: (x[0] is None, x[0]))
+    elif order_by == "Amount (high to low)":
+        items.sort(key=lambda x: x[1], reverse=True)
+    elif order_by == "Amount (low to high)":
+        items.sort(key=lambda x: x[1])
+
+    unmodified_ids = [item[2] for item in items if not item[3]]
+    modified_ids = [item[2] for item in items if item[3]]
 
     if only_unmodified:
         return unmodified_ids, labels
@@ -545,8 +582,9 @@ def _persist_manual_override(
         matched_ids = [transaction_id]
 
     overrides_df = _load_manual_overrides()
+    apply_all_overrides = st.session_state.get("apply_manual_overrides", True)
     existing: Dict[str, Dict[str, str]] = {}
-    if not overrides_df.empty:
+    if apply_all_overrides and not overrides_df.empty:
         existing = (
             overrides_df.set_index("transaction_id")
             .fillna("")
