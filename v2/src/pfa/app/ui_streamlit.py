@@ -201,7 +201,22 @@ def _render_flow_section(
     with col_bar:
         _render_monthly_bar_chart(view_df, title, is_waste=is_waste)
     with col_pie:
-        _render_category_pie_chart(view_df, title, is_waste=is_waste)
+        selected_class = _render_category_pie_chart(view_df, title, is_waste=is_waste)
+
+    if not selected_class:
+        class_options = _category_totals(view_df, is_waste=is_waste)["Category"].tolist()
+        if class_options:
+            picker = st.selectbox(
+                "Select class to drill down",
+                options=["(select)"] + class_options,
+                index=0,
+                key=f"{title.lower()}_drilldown_select",
+            )
+            if picker != "(select)":
+                selected_class = picker
+
+    if selected_class:
+        _render_class_drilldown(view_df, selected_class, is_waste=is_waste)
 
     table_df = _flow_table(view_df)
     st.dataframe(table_df, use_container_width=True)
@@ -248,11 +263,11 @@ def _render_category_pie_chart(
     view_df: pd.DataFrame,
     title: str,
     is_waste: bool,
-) -> None:
+) -> Optional[str]:
     categories = _category_totals(view_df, is_waste=is_waste)
     if categories.empty:
         st.info("No category data available for this view.")
-        return
+        return None
 
     fig = px.pie(
         categories,
@@ -264,10 +279,87 @@ def _render_category_pie_chart(
     fig.update_traces(textposition="inside", textinfo="percent+label")
     fig.update_layout(margin=dict(l=10, r=10, t=40, b=10))
     st.plotly_chart(fig, use_container_width=True)
+    return None
+
+
+def _render_class_drilldown(
+    view_df: pd.DataFrame,
+    selected_class: str,
+    is_waste: bool,
+) -> None:
+    st.markdown(f"#### {selected_class} breakdown")
+    class_rows = view_df.copy()
+    class_col = _pick_column(class_rows, ["class", "category"])
+    if class_col is None:
+        st.info("Class data is unavailable for drilldown.")
+        return
+
+    class_rows = class_rows[
+        class_rows[class_col]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .eq(str(selected_class).strip())
+    ]
+    if class_rows.empty:
+        st.info("No rows available for this class.")
+        return
+
+    amount_series = _amount_series(class_rows)
+    if is_waste:
+        amount_series = amount_series.abs()
+    total_amount = float(amount_series.sum())
+    st.caption(f"Total: {_format_amount(total_amount)}")
+
+    sub_col = _pick_column(class_rows, ["sub_class", "sub-class", "sub_category"])
+    if sub_col:
+        sub_values = (
+            class_rows[sub_col]
+            .fillna("Unclassified")
+            .astype(str)
+            .str.strip()
+            .replace("", "Unclassified")
+        )
+        sub_totals = amount_series.groupby(sub_values).sum().sort_values(ascending=False)
+        sub_df = pd.DataFrame({"Sub-class": sub_totals.index, "Total": sub_totals.values})
+    else:
+        sub_df = pd.DataFrame()
+
+    monthly = _monthly_totals(class_rows, is_waste=is_waste)
+
+    col_sub, col_trend = st.columns(2)
+    with col_sub:
+        if sub_df.empty:
+            st.info("No sub-class data available.")
+        else:
+            fig_sub = px.pie(
+                sub_df,
+                names="Sub-class",
+                values="Total",
+                title="Sub-class distribution",
+                color_discrete_sequence=_flow_palette(is_waste),
+            )
+            fig_sub.update_traces(textposition="inside", textinfo="percent+label")
+            fig_sub.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+            st.plotly_chart(fig_sub, use_container_width=True)
+
+    with col_trend:
+        if monthly.empty:
+            st.info("No monthly data available.")
+        else:
+            fig_trend = px.bar(
+                monthly,
+                x="Month",
+                y="Total",
+                title="Monthly totals",
+                labels={"Month": "Month", "Total": "Total"},
+            )
+            fig_trend.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+            st.plotly_chart(fig_trend, use_container_width=True)
 
 
 def _monthly_totals(df: pd.DataFrame, is_waste: bool) -> pd.DataFrame:
-    date_col = _pick_column(df, ["date", "transaction_date"])
+    date_col = _pick_column(df, ["date", "Date", "transaction_date"])
     if date_col is None:
         return pd.DataFrame()
 
@@ -284,7 +376,7 @@ def _monthly_totals(df: pd.DataFrame, is_waste: bool) -> pd.DataFrame:
 
 
 def _category_totals(df: pd.DataFrame, is_waste: bool) -> pd.DataFrame:
-    category_col = _pick_column(df, ["category", "class", "sub_class"])
+    category_col = _pick_column(df, ["class", "category", "sub_class"])
     if category_col is None:
         return pd.DataFrame()
 
@@ -846,7 +938,14 @@ def _flow_palette(is_waste: bool) -> List[str]:
 def _amount_series(df: pd.DataFrame) -> pd.Series:
     if "Amount" not in df.columns:
         return pd.Series(0, index=df.index)
-    return pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    cleaned = (
+        df["Amount"]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("$", "", regex=False)
+        .str.replace(r"[^\d\.\-]", "", regex=True)
+    )
+    return pd.to_numeric(cleaned, errors="coerce").fillna(0)
 
 
 def _sum_amount(df: pd.DataFrame) -> str:
