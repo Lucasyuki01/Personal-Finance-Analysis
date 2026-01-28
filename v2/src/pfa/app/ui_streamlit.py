@@ -37,7 +37,7 @@ MANUAL_OVERRIDES_PATH = (
 def main() -> None:
     st.title("Personal Finance Analysis - Canonical Viewer")
 
-    uploads, use_llm, apply_manual = _sidebar_controls()
+    uploads, use_llm, apply_manual, page = _sidebar_controls()
     if st.session_state.get("run_pipeline_clicked"):
         st.session_state["run_pipeline_clicked"] = False
         _run_pipeline(uploads, use_llm=use_llm, apply_manual=apply_manual)
@@ -47,7 +47,7 @@ def main() -> None:
 
     canonical_df = st.session_state.get("canonical_df")
     if canonical_df is not None:
-        _render_views(canonical_df)
+        _render_views(canonical_df, page)
     else:
         st.info("Upload files and run the pipeline to view data.")
 
@@ -67,11 +67,17 @@ def _sidebar_controls():
             value=True,
             key="apply_manual_overrides",
         )
+        st.divider()
+        page = st.radio(
+            "Page",
+            options=["Overview", "Profits detail", "Wastes detail"],
+            index=0,
+        )
         if st.button("Run pipeline"):
             st.session_state["run_pipeline_clicked"] = True
         if st.button("Load saved canonical"):
             st.session_state["load_canonical_clicked"] = True
-    return uploads, use_llm, apply_manual
+    return uploads, use_llm, apply_manual, page
 
 
 def _run_pipeline(uploads, use_llm: bool, apply_manual: bool) -> None:
@@ -128,24 +134,14 @@ def _load_canonical(apply_manual: bool) -> None:
     st.success(f"Loaded canonical dataset from {OUTPUT_PATH}")
 
 
-def _render_views(canonical_df: pd.DataFrame) -> None:
+def _render_views(canonical_df: pd.DataFrame, page: str) -> None:
     canonical_df = _ensure_short_id(canonical_df)
-    st.subheader("Summary")
-    _render_summary(canonical_df)
-    _render_download(canonical_df)
-
-    st.subheader("Transaction Lookup")
-    _render_transaction_lookup(canonical_df)
-
-    st.subheader("Unclassified")
-    _render_unclassified_section(canonical_df)
-
-    st.subheader("Views")
-    _render_flow_section("Profits", view_profits(canonical_df), is_waste=False)
-    _render_flow_section("Wastes", view_wastes(canonical_df), is_waste=True)
-    _render_simple_view("Card Purchases", view_card_purchases(canonical_df))
-    _render_simple_view("Account Expenses", view_account_expenses(canonical_df))
-    _render_simple_view("Fixed Wastes", view_fixed_wastes(canonical_df))
+    if page == "Overview":
+        _render_overview_page(canonical_df)
+    elif page == "Profits detail":
+        _render_profit_detail_page(canonical_df)
+    else:
+        _render_waste_detail_page(canonical_df)
 
 
 def _render_summary(canonical_df: pd.DataFrame) -> None:
@@ -195,11 +191,120 @@ def _ensure_short_id(df: pd.DataFrame) -> pd.DataFrame:
     )
     return updated
 
+
+def _render_overview_page(canonical_df: pd.DataFrame) -> None:
+    st.subheader("Summary")
+    _render_summary(canonical_df)
+
+    st.subheader("Profits")
+    _render_flow_section(
+        "Profits",
+        view_profits(canonical_df),
+        is_waste=False,
+        show_tables=False,
+        show_editor=False,
+        render_drilldown=True,
+    )
+
+    st.subheader("Wastes")
+    _render_flow_section(
+        "Wastes",
+        view_wastes(canonical_df),
+        is_waste=True,
+        show_tables=False,
+        show_editor=False,
+        render_drilldown=True,
+    )
+
+    st.subheader("Download")
+    _render_download(canonical_df)
+
+
+def _render_profit_detail_page(canonical_df: pd.DataFrame) -> None:
+    st.subheader("Profits")
+    profits_df = view_profits(canonical_df)
+    filtered_df, selected_class = _render_filtered_flow(
+        "Profits",
+        profits_df,
+        is_waste=False,
+        render_drilldown=False,
+    )
+    if selected_class:
+        _render_class_drilldown(filtered_df, selected_class, is_waste=False)
+        _render_class_table(filtered_df, selected_class, is_waste=False)
+
+    st.subheader("Transaction Lookup")
+    _render_transaction_lookup(canonical_df)
+
+    st.subheader("Unclassified")
+    _render_unclassified_section(canonical_df)
+
+
+def _render_waste_detail_page(canonical_df: pd.DataFrame) -> None:
+    st.subheader("Wastes")
+    wastes_df = view_wastes(canonical_df)
+    filtered_df, selected_class = _render_filtered_flow(
+        "Wastes",
+        wastes_df,
+        is_waste=True,
+        render_drilldown=False,
+    )
+    if selected_class:
+        _render_class_drilldown(filtered_df, selected_class, is_waste=True)
+        _render_class_table(filtered_df, selected_class, is_waste=True)
+
+    st.subheader("Transaction Lookup")
+    _render_transaction_lookup(canonical_df)
+
+    st.subheader("Unclassified")
+    _render_unclassified_section(canonical_df)
+
+
+def _render_filtered_flow(
+    title: str,
+    view_df: pd.DataFrame,
+    is_waste: bool,
+    render_drilldown: bool,
+) -> Tuple[pd.DataFrame, Optional[str]]:
+    filtered_df = view_df
+    selected_class = _render_flow_section(
+        title,
+        filtered_df,
+        is_waste=is_waste,
+        show_tables=True,
+        show_editor=False,
+        render_drilldown=render_drilldown,
+    )
+    return filtered_df, selected_class
+
+
+def _render_class_table(
+    view_df: pd.DataFrame,
+    selected_class: str,
+    is_waste: bool,
+) -> None:
+    st.markdown("#### Selected class transactions")
+    class_col = _pick_column(view_df, ["class", "category"])
+    if class_col is None:
+        st.info("Class data is unavailable.")
+        return
+    class_rows = view_df[
+        view_df[class_col].fillna("").astype(str).str.strip().eq(selected_class)
+    ]
+    if class_rows.empty:
+        st.info("No transactions for selected class.")
+        return
+    table_df = _flow_table(class_rows)
+    st.dataframe(table_df, use_container_width=True)
+
 def _render_flow_section(
     title: str,
     view_df: pd.DataFrame,
     is_waste: bool,
-) -> None:
+    show_tables: bool = True,
+    show_editor: bool = True,
+    render_drilldown: bool = True,
+) -> Optional[str]:
     st.markdown(f"### {title}")
 
     row_count = len(view_df)
@@ -231,12 +336,14 @@ def _render_flow_section(
             if picker != "(select)":
                 selected_class = picker
 
-    if selected_class:
+    if show_tables:
+        table_df = _flow_table(view_df)
+        st.dataframe(table_df, use_container_width=True)
+    if show_editor:
+        _render_manual_editor(title, view_df)
+    if render_drilldown and selected_class:
         _render_class_drilldown(view_df, selected_class, is_waste=is_waste)
-
-    table_df = _flow_table(view_df)
-    st.dataframe(table_df, use_container_width=True)
-    _render_manual_editor(title, view_df)
+    return selected_class
 
 
 def _render_simple_view(
