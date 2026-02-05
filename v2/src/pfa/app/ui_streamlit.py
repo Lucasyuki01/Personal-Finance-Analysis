@@ -1,6 +1,5 @@
 from pathlib import Path
 import io
-import os
 import sys
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
@@ -37,10 +36,10 @@ MANUAL_OVERRIDES_PATH = (
 def main() -> None:
     st.title("Personal Finance Analysis - Canonical Viewer")
 
-    uploads, use_llm, apply_manual, page = _sidebar_controls()
+    uploads, apply_manual, page = _sidebar_controls()
     if st.session_state.get("run_pipeline_clicked"):
         st.session_state["run_pipeline_clicked"] = False
-        _run_pipeline(uploads, use_llm=use_llm, apply_manual=apply_manual)
+        _run_pipeline(uploads, apply_manual=apply_manual)
     if st.session_state.get("load_canonical_clicked"):
         st.session_state["load_canonical_clicked"] = False
         _load_canonical(apply_manual=apply_manual)
@@ -61,7 +60,6 @@ def _sidebar_controls():
             accept_multiple_files=True,
         )
         st.checkbox("Apply classification rules", key="apply_rules")
-        use_llm = st.checkbox("Use AI classification", value=True)
         apply_manual = st.checkbox(
             "Apply manual overrides",
             value=True,
@@ -77,25 +75,19 @@ def _sidebar_controls():
             st.session_state["run_pipeline_clicked"] = True
         if st.button("Load saved canonical"):
             st.session_state["load_canonical_clicked"] = True
-    return uploads, use_llm, apply_manual, page
+    return uploads, apply_manual, page
 
 
-def _run_pipeline(uploads, use_llm: bool, apply_manual: bool) -> None:
+def _run_pipeline(uploads, apply_manual: bool) -> None:
     if not uploads:
         st.error("Please upload at least one file before running the pipeline.")
         return
 
     with st.spinner("Running pipeline..."):
-        os.environ["PFA_ENABLE_LLM"] = "1" if use_llm else "0"
         try:
             try:
-                canonical_df, _analysis_ready, _manifest = run_pipeline_from_uploads(
-                    uploads,
-                    enable_llm=use_llm,
-                )
+                canonical_df, _analysis_ready, _manifest = run_pipeline_from_uploads(uploads)
             except TypeError as exc:
-                if "enable_llm" not in str(exc):
-                    raise
                 canonical_df, _analysis_ready, _manifest = run_pipeline_from_uploads(
                     uploads
                 )
@@ -196,7 +188,6 @@ def _render_overview_page(canonical_df: pd.DataFrame) -> None:
     st.subheader("Summary")
     _render_summary(canonical_df)
 
-    st.subheader("Profits")
     _render_flow_section(
         "Profits",
         view_profits(canonical_df),
@@ -206,7 +197,6 @@ def _render_overview_page(canonical_df: pd.DataFrame) -> None:
         render_drilldown=True,
     )
 
-    st.subheader("Wastes")
     _render_flow_section(
         "Wastes",
         view_wastes(canonical_df),

@@ -9,7 +9,6 @@ from pfa.pipeline.clean import compute_missing_stats, initial_clean
 from pfa.pipeline.enrich import add_canonical_fields
 from pfa.pipeline.exclusions import filter_analysis_ready, mark_inter_account_transfers
 from pfa.pipeline.ingest import ingest_tables, ingest_uploads
-from pfa.pipeline.llm_classify import classify_card_expenses
 from pfa.utils.detection import processing_markers_status
 from rules.apply import apply_rules
 
@@ -43,7 +42,6 @@ def run_pipeline(
     processing_version: str = PIPELINE_VERSION,
     rules_df: Optional[pd.DataFrame] = None,
     overwrite_manual: bool = False,
-    enable_llm: bool = True,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """Run the full pipeline and return canonical + analysis-ready data."""
     input_files = list(input_files)
@@ -54,7 +52,6 @@ def run_pipeline(
         processing_version,
         rules_df=rules_df,
         overwrite_manual=overwrite_manual,
-        enable_llm=enable_llm,
     )
 
 
@@ -63,7 +60,6 @@ def run_pipeline_from_uploads(
     processing_version: str = PIPELINE_VERSION,
     rules_df: Optional[pd.DataFrame] = None,
     overwrite_manual: bool = False,
-    enable_llm: bool = True,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """Run the full pipeline from uploaded file objects."""
     upload_list = list(uploads)
@@ -78,7 +74,6 @@ def run_pipeline_from_uploads(
         processing_version,
         rules_df=rules_df,
         overwrite_manual=overwrite_manual,
-        enable_llm=enable_llm,
     )
 
 
@@ -88,7 +83,6 @@ def _run_pipeline_on_df(
     processing_version: str,
     rules_df: Optional[pd.DataFrame],
     overwrite_manual: bool,
-    enable_llm: bool,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     processing_status = processing_markers_status(ingested) if not ingested.empty else {}
 
@@ -113,8 +107,6 @@ def _run_pipeline_on_df(
             rules_df,
             overwrite_manual=overwrite_manual,
         )
-    if enable_llm:
-        canonical = classify_card_expenses(canonical, rules_df=rules_df)
     analysis_ready = filter_analysis_ready(canonical)
 
     manifest = build_manifest(
