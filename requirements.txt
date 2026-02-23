@@ -12,3 +12,4 @@ python-dotenv
 openpyxl
 matplotlib
 pytest
+psycopg[binary]

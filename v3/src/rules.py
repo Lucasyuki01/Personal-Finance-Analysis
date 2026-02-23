@@ -30,7 +30,21 @@ def ensure_rules_files() -> None:
 
 
 def _pos_db_url() -> str:
-    return os.getenv("POS_RULES_DATABASE_URL", "").strip()
+    env_value = os.getenv("POS_RULES_DATABASE_URL", "").strip()
+    if env_value:
+        return env_value
+
+    # Streamlit Cloud secrets are usually exposed via st.secrets.
+    try:
+        import streamlit as st
+
+        secret_value = str(st.secrets.get("POS_RULES_DATABASE_URL", "")).strip()
+        if secret_value:
+            return secret_value
+    except Exception:
+        return ""
+
+    return ""
 
 
 def _using_pos_db() -> bool:
