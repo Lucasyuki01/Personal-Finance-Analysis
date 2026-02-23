@@ -81,9 +81,26 @@ Undo reverts the dataframe edits and restores/removes the corresponding rule ent
 
 ## Categories and Subcategories
 Defaults are defined in `src/constants.py`. If you need a custom taxonomy, update:
-- `INCOME_CATEGORIES`
-- `EXPENSE_CATEGORIES`
-- `CATEGORY_TO_SUBCATEGORIES`
+- `DEFAULT_INCOME_TAXONOMY`
+- `DEFAULT_EXPENSE_TAXONOMY`
 
 ## Deployment Notes
-Rules are stored in `data/pos_rules.json` and `data/specific_rules.json`. On Streamlit Cloud, filesystem persistence may be limited, so the app always allows downloading rules for re-use.
+- `specific_rules` continues to use local file/session flow and can always be downloaded/re-uploaded.
+- `pos_rules` supports a centralized Postgres store for multi-user label collection.
+
+### Centralized pos_rules (recommended for deploy)
+Set this environment variable in your deploy target:
+
+```bash
+POS_RULES_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME
+```
+
+Behavior:
+- If `POS_RULES_DATABASE_URL` is set, `pos_rules` are loaded/saved in Postgres (shared across users).
+- If not set, fallback is `data/pos_rules.json` (local filesystem).
+
+The app auto-creates table `pos_rules` with:
+- `rule_key TEXT PRIMARY KEY`
+- `category TEXT`
+- `sub_category TEXT`
+- `updated_at TIMESTAMPTZ`

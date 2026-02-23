@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -28,8 +29,61 @@ def ensure_rules_files() -> None:
         SPECIFIC_RULES_PATH.write_text(json.dumps(empty, indent=2), encoding="utf-8")
 
 
+def _pos_db_url() -> str:
+    return os.getenv("POS_RULES_DATABASE_URL", "").strip()
+
+
+def _using_pos_db() -> bool:
+    return bool(_pos_db_url())
+
+
+def _get_pos_db_connection():
+    db_url = _pos_db_url()
+    if not db_url:
+        return None
+    try:
+        import psycopg
+    except ImportError as exc:
+        raise RuntimeError(
+            "POS_RULES_DATABASE_URL is set, but psycopg is not installed. Add psycopg[binary]."
+        ) from exc
+    return psycopg.connect(db_url)
+
+
+def _ensure_pos_rules_table(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pos_rules (
+                rule_key TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                sub_category TEXT NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+
+
 def load_pos_rules() -> Dict:
     ensure_rules_files()
+    if _using_pos_db():
+        with _get_pos_db_connection() as conn:
+            _ensure_pos_rules_table(conn)
+            with conn.cursor() as cur:
+                cur.execute("SELECT rule_key, category, sub_category, updated_at FROM pos_rules")
+                rows = cur.fetchall()
+        rules: Dict = {}
+        for rule_key_value, category, sub_category, updated_at in rows:
+            if hasattr(updated_at, "isoformat"):
+                updated_at_iso = updated_at.isoformat()
+            else:
+                updated_at_iso = str(updated_at)
+            rules[rule_key_value] = {
+                "category": category,
+                "sub_category": sub_category,
+                "updated_at": updated_at_iso,
+            }
+        return rules
     try:
         return json.loads(POS_RULES_PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
@@ -38,6 +92,72 @@ def load_pos_rules() -> Dict:
 
 def save_pos_rules(pos_rules: Dict) -> None:
     ensure_rules_files()
+    if _using_pos_db():
+        with _get_pos_db_connection() as conn:
+            _ensure_pos_rules_table(conn)
+            with conn.cursor() as cur:
+                for rule_key_value, rule in pos_rules.items():
+                    cur.execute(
+                        """
+                        INSERT INTO pos_rules (rule_key, category, sub_category, updated_at)
+                        VALUES (%s, %s, %s, NOW())
+                        ON CONFLICT (rule_key)
+                        DO UPDATE SET
+                            category = EXCLUDED.category,
+                            sub_category = EXCLUDED.sub_category,
+                            updated_at = NOW()
+                        """,
+                        (
+                            rule_key_value,
+                            rule.get("category", "none"),
+                            rule.get("sub_category", "none"),
+                        ),
+                    )
+            conn.commit()
+        return
+    POS_RULES_PATH.write_text(json.dumps(pos_rules, indent=2), encoding="utf-8")
+
+
+def persist_pos_rule(rule_key_value: str, rule: Dict) -> None:
+    ensure_rules_files()
+    if _using_pos_db():
+        with _get_pos_db_connection() as conn:
+            _ensure_pos_rules_table(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO pos_rules (rule_key, category, sub_category, updated_at)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (rule_key)
+                    DO UPDATE SET
+                        category = EXCLUDED.category,
+                        sub_category = EXCLUDED.sub_category,
+                        updated_at = NOW()
+                    """,
+                    (
+                        rule_key_value,
+                        rule.get("category", "none"),
+                        rule.get("sub_category", "none"),
+                    ),
+                )
+            conn.commit()
+        return
+    pos_rules = load_pos_rules()
+    pos_rules[rule_key_value] = rule
+    POS_RULES_PATH.write_text(json.dumps(pos_rules, indent=2), encoding="utf-8")
+
+
+def delete_pos_rule(rule_key_value: str) -> None:
+    ensure_rules_files()
+    if _using_pos_db():
+        with _get_pos_db_connection() as conn:
+            _ensure_pos_rules_table(conn)
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM pos_rules WHERE rule_key = %s", (rule_key_value,))
+            conn.commit()
+        return
+    pos_rules = load_pos_rules()
+    pos_rules.pop(rule_key_value, None)
     POS_RULES_PATH.write_text(json.dumps(pos_rules, indent=2), encoding="utf-8")
 
 

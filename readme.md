@@ -1,58 +1,85 @@
-# Personal Finance Analysis Dashboard
+# Personal Finance Analysis
 
-Interactive Streamlit dashboard for exploring Scotiabank transaction exports. The app cleans raw statements, classifies entries with POS rules/manual overrides, and visualises spending, income, and balance trends.
+## Online User Tutorial (Step by Step)
+1. Open the online app link in your browser.
+2. On the landing page, upload your transaction spreadsheets (`CSV` or `XLSX`):
+   - You can upload one or multiple files at the same time.
+3. (Optional) Upload your previous `specific_rules.json`:
+   - Use this when you want to reuse your own categories/sub-categories from earlier sessions.
+4. Click `Process`:
+   - The app will normalize, merge, and classify transactions automatically.
+5. Review data in `Home`, `Income`, and `Expenses`:
+   - Use date filters to focus on a period.
+   - Use search boxes to find transactions quickly.
+6. Classify uncategorized items in `Uncategorized`:
+   - `Unique classification` for repeated patterns (POS/Payroll/Bill Payment/Service Charge groups).
+   - `Specific classification (by ID)` for single transactions (for example withdrawals).
+   - Use `Save` to apply labels, or `Undo` to revert the last change.
+7. Create or extend personal category trees in `Custom Categories`:
+   - Choose scope (`Expense` or `Income`).
+   - Add a new category with sub-categories, or append sub-categories to an existing category.
+8. Save outputs in `Save/Download files`:
+   - Download processed transactions.
+   - Download `specific_rules.json` (important for your personal rules backup and reuse).
+   - Download `pos_rules.json` (backup/export of shared pattern rules).
+9. Reuse your rules later:
+   - In a future session, upload your saved `specific_rules.json` before processing.
+   - Your personal category logic will be restored for that session.
 
-## Features
-- **Automated classification** based on `config/pos_rules.csv`, with optional manual overrides in `config/manual_overrides.csv`.
-- **Flexible filters** for date range, class, category, and sub-category.
-- **Key metrics** (total spent, total earned, net delta, median & average spending) updated live.
-- **Visuals**: monthly expenses and earnings, category breakdowns, daily balance trend, Top 10 expenses, and an "Others" review table.
-- **One-click download** of the classified dataset.
+## What the Tool Does
+- Normalizes and merges multiple transaction spreadsheets.
+- Creates/updates columns (`Source`, `Category`, `Sub-Category`, `Profit`, `ID`).
+- Removes internal transfers.
+- Classifies transactions using:
+  - `pos_rules` (fallback)
+  - `specific_rules` (priority)
+- Supports manual editing with `Save` and `Undo`.
 
-## Project structure
+## Project Structure
+```text
+v1/                          # previous versions
+v2/                          # previous versions
+v3/                          # current version (main app)
+  streamlit_app.py
+  requirements.txt
+  README.md
+  src/
+    processing.py
+    rules.py
+    pages.py
+    charts.py
+    constants.py
+  data/
+    pos_rules.json
+    specific_rules.json
 ```
-config/
-  pos_rules.csv            # POS classification rules
-  manual_overrides.csv     # Transaction-specific overrides (optional)
-data/                      # Raw Scotiabank exports (ignored by Git)
-reserve/                   # Local backups / prototypes (ignored by Git)
-src/
-  app.py                   # Streamlit app entrypoint
-requirements.txt           # Python dependencies
-.gitignore                 # Keeps sensitive/local files out of Git
-readme.md                  # Project documentation
-```
 
-## Setup
-1. Install Python 3.10+.
-2. Clone the repository and create a virtual environment:
-   ```bash
-   git clone <repo-url>
-   cd personal-finance-analysis
-   python -m venv .venv
-   .venv\Scripts\activate  # Windows
-   source .venv/bin/activate  # macOS/Linux
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Place your Scotiabank CSV exports in the `data/` folder as `acc1.csv`, `acc2.csv` (or adjust the loader in `src/app.py`).
-5. Optionally tweak `config/pos_rules.csv` or populate `config/manual_overrides.csv` with transaction overrides.
+## Rules Persistence
+- `specific_rules`: local/session flow + download/re-upload.
+- `pos_rules`: can be centralized to collect labels from multiple users.
 
-## Run the dashboard
+### Recommended for Deploy (crowdsourced labels)
+Set this environment variable:
 ```bash
-streamlit run src/app.py
+POS_RULES_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME
 ```
-The app loads the datasets, applies cleaning/classification, and serves the dashboard in your browser.
 
-## Customising classifications
-- Edit **`config/pos_rules.csv`** to refine POS matching (pattern, category, sub-category, priority, match type).
-- Edit **`config/manual_overrides.csv`** for per-transaction adjustments (matched by Date / Description / Sub-description / Amount).
-- Restart Streamlit after changes so the data cache is refreshed.
+With this setup:
+- the app uses Postgres for `pos_rules` (shared across users);
+- without it, fallback is local `v3/data/pos_rules.json`.
 
-## Data handling notes
-- Raw statements in `data/` and any personal backups in `reserve/` are ignored by Git to keep private information out of the repository.
-- `.env` files are ignored; provide a `.env.example` if you need to document environment variables.
+## GitHub Preparation
+- Sensitive/runtime files are already ignored in `.gitignore`:
+  - `.env`, `.streamlit/secrets.toml`, caches, virtual environments
+  - intermediate outputs
+  - `v3/data/pos_rules.json` and `v3/data/specific_rules.json`
+- Before pushing:
+  1. review `git status`
+  2. confirm no personal data is included in local spreadsheets
+  3. commit only code and documentation
 
-Enjoy tracking your finances!
+## Deploy
+For Streamlit Cloud:
+1. Set `Main file path` to `v3/streamlit_app.py`.
+2. Ensure deployment installs `v3/requirements.txt`.
+3. (Optional, recommended) configure `POS_RULES_DATABASE_URL`.

@@ -12,11 +12,12 @@ import streamlit as st
 from . import charts
 from .constants import DEFAULT_EXPENSE_TAXONOMY, DEFAULT_INCOME_TAXONOMY
 from .rules import (
+    delete_pos_rule,
     dedupe_case_insensitive,
     get_effective_taxonomy,
     normalize_name,
+    persist_pos_rule,
     rule_key,
-    save_pos_rules,
     save_specific_rules,
     update_pos_rule,
     update_specific_rule_by_id,
@@ -162,7 +163,7 @@ def _apply_pos_save(df: pd.DataFrame, pos_rules: Dict, key_tuple: Tuple, categor
     df.loc[mask & sub_empty, "Sub-Category"] = sub_category
 
     previous_rule = update_pos_rule(pos_rules, key_str, category, sub_category)
-    save_pos_rules(pos_rules)
+    persist_pos_rule(key_str, pos_rules[key_str])
 
     return {
         "action_type": "pos_save",
@@ -222,7 +223,13 @@ def _undo_last_action(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict) -
         df.loc[mask, "Sub-Category"] = values.get("Sub-Category", "none")
 
     revert_rule(pos_rules, specific_rules, action.get("action_type"), action.get("rule_key"), action.get("rule_prev"))
-    save_pos_rules(pos_rules)
+    if action.get("action_type") == "pos_save":
+        rule_key_value = action.get("rule_key")
+        previous_rule = action.get("rule_prev")
+        if previous_rule is None:
+            delete_pos_rule(rule_key_value)
+        else:
+            persist_pos_rule(rule_key_value, previous_rule)
     save_specific_rules(specific_rules)
 
     st.session_state["undo_stack"] = undo_stack
