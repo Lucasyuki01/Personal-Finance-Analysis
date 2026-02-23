@@ -17,6 +17,7 @@ from src.pages import (
     render_income,
     render_expenses,
     render_uncategorized,
+    render_custom_categories,
     render_downloads,
 )
 
@@ -74,7 +75,7 @@ else:
     specific_rules = st.session_state["specific_rules"]
 
     st.sidebar.title("Navigation")
-    pages = ["Home", "Income", "Expenses", "Uncategorized"]
+    pages = ["Home", "Income", "Expenses", "Uncategorized", "Custom Categories"]
     prev_nav = st.session_state.get("nav_page", "Home")
     current_index = pages.index(prev_nav) if prev_nav in pages else 0
 
@@ -104,10 +105,12 @@ else:
     if page == "Home":
         render_home(df)
     elif page == "Income":
-        render_income(df)
+        render_income(df, specific_rules)
     elif page == "Expenses":
-        render_expenses(df)
+        render_expenses(df, specific_rules)
     elif page == "Uncategorized":
         render_uncategorized(df, pos_rules, specific_rules)
+    elif page == "Custom Categories":
+        render_custom_categories(df, pos_rules, specific_rules)
     elif page == "Downloads":
         render_downloads(df, pos_rules, specific_rules)

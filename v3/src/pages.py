@@ -10,8 +10,18 @@ import pandas as pd
 import streamlit as st
 
 from . import charts
-from .constants import CATEGORY_TO_SUBCATEGORIES, EXPENSE_CATEGORIES, INCOME_CATEGORIES
-from .rules import rule_key, save_pos_rules, save_specific_rules, update_pos_rule, update_specific_rule_by_id, revert_rule
+from .constants import DEFAULT_EXPENSE_TAXONOMY, DEFAULT_INCOME_TAXONOMY
+from .rules import (
+    dedupe_case_insensitive,
+    get_effective_taxonomy,
+    normalize_name,
+    rule_key,
+    save_pos_rules,
+    save_specific_rules,
+    update_pos_rule,
+    update_specific_rule_by_id,
+    revert_rule,
+)
 
 
 SEARCH_COLUMNS = ["ID", "Description", "Sub-description", "Category", "Sub-Category"]
@@ -97,6 +107,38 @@ def _unique_months_in_range(start: pd.Timestamp, end: pd.Timestamp) -> List[pd.T
     return list(months)
 
 
+def _effective_taxonomy(specific_rules: Dict) -> Dict[str, Dict[str, List[str]]]:
+    taxonomy = specific_rules.get("taxonomy", {}) if specific_rules else {}
+    return get_effective_taxonomy(DEFAULT_INCOME_TAXONOMY, DEFAULT_EXPENSE_TAXONOMY, taxonomy)
+
+
+def _resolve_category_key(
+    scope_taxonomy: Dict[str, List[str]],
+    default_taxonomy: Dict[str, List[str]],
+    category_name: str,
+) -> str:
+    category_norm = normalize_name(category_name)
+    lower = category_norm.lower()
+    for key in scope_taxonomy:
+        if key.lower() == lower:
+            return key
+    for key in default_taxonomy:
+        if key.lower() == lower:
+            return key
+    return category_norm
+
+
+def _validate_name(name: str, label: str) -> Tuple[str, str | None]:
+    normalized = normalize_name(name)
+    if not normalized:
+        return "", f"{label} cannot be empty."
+    if normalized.lower() == "none":
+        return "", f"{label} cannot be 'none'."
+    if len(normalized) < 2 or len(normalized) > 40:
+        return "", f"{label} must be between 2 and 40 characters."
+    return normalized, None
+
+
 def _apply_pos_save(df: pd.DataFrame, pos_rules: Dict, key_tuple: Tuple, category: str, sub_category: str) -> Dict:
     profit, desc_norm, sub_desc_norm = key_tuple
     key_str = rule_key(profit, desc_norm, sub_desc_norm)
@@ -159,6 +201,20 @@ def _undo_last_action(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict) -
         return "Nothing to undo."
 
     action = undo_stack.pop()
+    if action.get("action_type") == "taxonomy_save":
+        scope = action.get("taxonomy_scope")
+        category = action.get("taxonomy_category")
+        previous = action.get("taxonomy_prev")
+        taxonomy = specific_rules.setdefault("taxonomy", {})
+        scope_taxonomy = taxonomy.setdefault(scope, {})
+        if previous is None:
+            scope_taxonomy.pop(category, None)
+        else:
+            scope_taxonomy[category] = previous
+        save_specific_rules(specific_rules)
+        st.session_state["undo_stack"] = undo_stack
+        return "Undo completed successfully."
+
     previous_values = action.get("previous_values", {})
     for row_id, values in previous_values.items():
         mask = df["ID"] == row_id
@@ -215,7 +271,7 @@ def render_home(df: pd.DataFrame) -> None:
     st.dataframe(_display_df(display_df), use_container_width=True)
 
 
-def render_income(df: pd.DataFrame) -> None:
+def render_income(df: pd.DataFrame, specific_rules: Dict) -> None:
     st.title("Income")
     filtered = _date_filter(df)
     income_df = filtered[filtered["Profit"] == 1]
@@ -256,7 +312,9 @@ def render_income(df: pd.DataFrame) -> None:
     st.dataframe(_display_df(display_df), use_container_width=True)
 
     st.subheader("Sub-Category")
-    category = st.selectbox("Category", INCOME_CATEGORIES, key="income_category")
+    effective = _effective_taxonomy(specific_rules)
+    income_tax = effective["income"]
+    category = st.selectbox("Category", list(income_tax.keys()), key="income_category")
 
     category_df = income_df[income_df["Category"] == category]
     total_category = float(category_df["Amount"].sum()) if not category_df.empty else 0.0
@@ -271,7 +329,7 @@ def render_income(df: pd.DataFrame) -> None:
     st.dataframe(_display_df(category_df), use_container_width=True)
 
 
-def render_expenses(df: pd.DataFrame) -> None:
+def render_expenses(df: pd.DataFrame, specific_rules: Dict) -> None:
     st.title("Expenses")
     filtered = _date_filter(df)
     expense_df = filtered[filtered["Profit"] == 0]
@@ -293,7 +351,9 @@ def render_expenses(df: pd.DataFrame) -> None:
     st.dataframe(_display_df(display_df), use_container_width=True)
 
     st.subheader("Sub-Category")
-    category = st.selectbox("Category", EXPENSE_CATEGORIES, key="expense_category")
+    effective = _effective_taxonomy(specific_rules)
+    expense_tax = effective["expense"]
+    category = st.selectbox("Category", list(expense_tax.keys()), key="expense_category")
     category_df = expense_df[expense_df["Category"] == category]
     total_category = float(category_df["Amount"].abs().sum()) if not category_df.empty else 0.0
     st.markdown(f"**Total for {category}:** {total_category:,.2f}")
@@ -311,17 +371,46 @@ def render_uncategorized(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict
     st.title("Uncategorized items & Edits")
 
     filtered = _date_filter(df)
+    effective = _effective_taxonomy(specific_rules)
+    income_tax = effective["income"]
+    expense_tax = effective["expense"]
+    if st.session_state.pop("specific_clear_pending", False):
+        st.session_state["specific_id"] = ""
+        st.session_state.pop("specific_select", None)
     uncategorized = filtered[
         (filtered["Category"].astype("string").str.strip().str.lower() == "none")
         | (filtered["Sub-Category"].astype("string").str.strip().str.lower() == "none")
     ]
 
     st.subheader("Uncategorized")
-    st.dataframe(_display_df(uncategorized), use_container_width=True)
+    ordered_cols = [
+        "ID",
+        "Date",
+        "Description",
+        "Sub-description",
+        "Amount",
+        "Category",
+        "Sub-Category",
+        "Balance",
+    ]
+    unc_df = _display_df(uncategorized)
+    available_cols = [col for col in ordered_cols if col in unc_df.columns]
+    if available_cols:
+        unc_df = unc_df[available_cols]
+    st.dataframe(unc_df, use_container_width=True)
 
-    st.subheader("Unique classification (POS only)")
+    st.subheader("Unique classification (POS and Payroll only)")
+    pos_msg = st.session_state.get("pos_success_msg")
+    if pos_msg:
+        msg_col, btn_col = st.columns([5, 1])
+        with msg_col:
+            st.success(pos_msg)
+        with btn_col:
+            if st.button("Dismiss", key="pos_msg_dismiss"):
+                st.session_state.pop("pos_success_msg", None)
+
     pos_candidates = filtered[
-        (filtered["description_norm"] == "pos purchase")
+        (filtered["description_norm"].isin(["pos purchase", "payroll", "bill payment", "service charge"]))
         & (
             (filtered["Category"].astype("string").str.strip().str.lower() == "none")
             | (filtered["Sub-Category"].astype("string").str.strip().str.lower() == "none")
@@ -347,17 +436,17 @@ def render_uncategorized(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict
             label = f"{'Income' if profit == 1 else 'Expense'} | {desc} | {sub_desc or '(empty)'}"
             label_map[label] = key
 
-        selected_label = st.selectbox("Unique POS group", list(label_map.keys()), key="pos_unique")
+        selected_label = st.selectbox("Unique POS/Payroll group", list(label_map.keys()), key="pos_unique")
         selected_key = label_map[selected_label]
 
         profit = selected_key[0]
         if profit == 1:
-            categories = INCOME_CATEGORIES
+            categories = list(income_tax.keys())
         else:
-            categories = EXPENSE_CATEGORIES
+            categories = list(expense_tax.keys())
 
         selected_category = st.selectbox("Category", categories, key="pos_category")
-        subcats = CATEGORY_TO_SUBCATEGORIES.get(selected_category, ["Other"])
+        subcats = (income_tax if profit == 1 else expense_tax).get(selected_category, ["Other"])
         selected_subcategory = st.selectbox("Sub-Category", subcats, key="pos_subcategory")
 
         col1, col2 = st.columns(2)
@@ -365,7 +454,7 @@ def render_uncategorized(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict
             if st.button("Save POS classification", key="pos_save"):
                 action = _apply_pos_save(df, pos_rules, selected_key, selected_category, selected_subcategory)
                 st.session_state.setdefault("undo_stack", []).append(action)
-                st.success(
+                st.session_state["pos_success_msg"] = (
                     f"Unique: {selected_label} saved as {selected_category} - {selected_subcategory} successfully!"
                 )
                 st.rerun()
@@ -378,9 +467,30 @@ def render_uncategorized(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict
     left, right = st.columns([1, 2])
 
     with left:
-        search_id = st.text_input("Search by ID", key="specific_id")
+        def _on_specific_select() -> None:
+            label = st.session_state.get("specific_select")
+            option_map = st.session_state.get("specific_option_map", {})
+            selected_id = option_map.get(label)
+            if selected_id:
+                st.session_state["specific_selected_id"] = selected_id
+                st.session_state["specific_user_selected"] = True
 
-        withdrawal_rows = filtered[filtered["description_norm"] == "withdrawal"]
+        search_query = st.text_input("Search (ID or text)", key="specific_id")
+
+        empty_mask = (
+            (filtered["Category"].astype("string").str.strip().str.lower() == "none")
+            | (filtered["Sub-Category"].astype("string").str.strip().str.lower() == "none")
+        )
+        withdrawal_rows = filtered[
+            (
+                (filtered["description_norm"] == "withdrawal")
+                & empty_mask
+            )
+            | ((filtered["Profit"] == 1) & empty_mask)
+        ]
+        if search_query:
+            withdrawal_rows = _search_filter(withdrawal_rows, search_query)
+
         options = []
         option_map = {}
 
@@ -390,8 +500,8 @@ def render_uncategorized(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict
                 options.append(label)
                 option_map[label] = row["ID"]
 
-        if search_id:
-            match = filtered[filtered["ID"] == search_id]
+        if search_query:
+            match = filtered[filtered["ID"] == search_query]
             if not match.empty:
                 row = match.iloc[0]
                 label = f"{row['ID']} | {row['Description']} | {row['Amount']:.2f}"
@@ -401,17 +511,26 @@ def render_uncategorized(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict
                 st.session_state["specific_select"] = label
 
         if not options:
-            st.info("No withdrawal transactions found in this range.")
+            st.session_state.pop("specific_selected_id", None)
+            st.session_state["specific_user_selected"] = False
+            st.info("No transactions found in this range.")
         else:
-            selected_label = st.selectbox("Transaction", options, key="specific_select")
+            st.session_state["specific_option_map"] = option_map
+            selected_label = st.selectbox(
+                "Transaction",
+                options,
+                key="specific_select",
+                on_change=_on_specific_select,
+            )
             selected_id = option_map[selected_label]
+            st.session_state["specific_selected_id"] = selected_id
 
             row = filtered[filtered["ID"] == selected_id].iloc[0]
             profit = int(row["Profit"])
-            categories = INCOME_CATEGORIES if profit == 1 else EXPENSE_CATEGORIES
+            categories = list(income_tax.keys()) if profit == 1 else list(expense_tax.keys())
 
             category = st.selectbox("Category", categories, key="specific_category")
-            subcats = CATEGORY_TO_SUBCATEGORIES.get(category, ["Other"])
+            subcats = (income_tax if profit == 1 else expense_tax).get(category, ["Other"])
             sub_category = st.selectbox("Sub-Category", subcats, key="specific_subcategory")
 
             col1, col2 = st.columns(2)
@@ -420,16 +539,143 @@ def render_uncategorized(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict
                     action = _apply_specific_save(df, specific_rules, selected_id, category, sub_category)
                     st.session_state.setdefault("undo_stack", []).append(action)
                     st.success("Specific rule saved successfully!")
+                    st.session_state["specific_clear_pending"] = True
+                    st.session_state.pop("specific_selected_id", None)
+                    st.session_state["specific_user_selected"] = False
+                    st.rerun()
             with col2:
                 if st.button("Undo Specific", key="specific_undo"):
                     message = _undo_last_action(df, pos_rules, specific_rules)
                     st.success(message)
+                    st.session_state["specific_clear_pending"] = True
+                    st.session_state.pop("specific_selected_id", None)
+                    st.session_state["specific_user_selected"] = False
+                    st.rerun()
 
     with right:
-        st.subheader("Transactions")
-        search = st.text_input("Search transactions", key="specific_search")
-        display_df = _search_filter(filtered, search)
-        st.dataframe(_display_df(display_df), use_container_width=True)
+        display_df = _search_filter(filtered, search_query)
+        selected_id = st.session_state.get("specific_selected_id")
+        if st.session_state.get("specific_user_selected") and selected_id:
+            display_df = display_df[display_df["ID"] == selected_id]
+        ordered_cols = ["ID", "Date", "Description", "Sub-description", "Amount", "Category", "Sub-Category"]
+        available_cols = [col for col in ordered_cols if col in display_df.columns]
+        table_df = _display_df(display_df)
+        if available_cols:
+            table_df = table_df[available_cols]
+        st.dataframe(table_df, use_container_width=True)
+
+
+def render_custom_categories(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict) -> None:
+    st.title("Custom Categories")
+
+    scope_label = st.radio("Scope", ["Expense", "Income"], key="custom_scope")
+    scope = "expense" if scope_label == "Expense" else "income"
+
+    taxonomy = specific_rules.setdefault("taxonomy", {})
+    scope_taxonomy = taxonomy.setdefault(scope, {})
+    default_taxonomy = DEFAULT_EXPENSE_TAXONOMY if scope == "expense" else DEFAULT_INCOME_TAXONOMY
+    effective = _effective_taxonomy(specific_rules)[scope]
+
+    st.subheader("Create new category")
+    category_input = st.text_input("Category name", key=f"custom_new_category_{scope}")
+    sub_input = st.text_area("Sub-categories (one per line)", key=f"custom_new_subs_{scope}")
+
+    if st.button("Save new category", key=f"custom_save_category_{scope}"):
+        category_name, error = _validate_name(category_input, "Category name")
+        if error:
+            st.error(error)
+        else:
+            raw_subs = [line for line in sub_input.splitlines() if normalize_name(line)]
+            if not raw_subs:
+                st.error("Please provide at least one sub-category.")
+            else:
+                validated_subs = []
+                for item in raw_subs:
+                    sub_name, sub_error = _validate_name(item, "Sub-category name")
+                    if sub_error:
+                        st.error(sub_error)
+                        validated_subs = []
+                        break
+                    validated_subs.append(sub_name)
+
+                if validated_subs:
+                    validated_subs = dedupe_case_insensitive(validated_subs)
+                    effective_key = next(
+                        (key for key in effective if key.lower() == category_name.lower()),
+                        category_name,
+                    )
+                    existing_subs = effective.get(effective_key, [])
+                    existing_lower = {normalize_name(s).lower() for s in existing_subs}
+                    dupes = [s for s in validated_subs if s.lower() in existing_lower]
+                    if dupes:
+                        st.error(
+                            "These sub-categories already exist: " + ", ".join(dupes)
+                        )
+                    else:
+                        category_key = _resolve_category_key(scope_taxonomy, default_taxonomy, category_name)
+                        previous = scope_taxonomy.get(category_key)
+                        previous_copy = list(previous) if isinstance(previous, list) else None
+                        if previous is None:
+                            scope_taxonomy[category_key] = validated_subs
+                        else:
+                            scope_taxonomy[category_key] = dedupe_case_insensitive(previous + validated_subs)
+                        save_specific_rules(specific_rules)
+                        st.session_state.setdefault("undo_stack", []).append(
+                            {
+                                "action_type": "taxonomy_save",
+                                "taxonomy_scope": scope,
+                                "taxonomy_category": category_key,
+                                "taxonomy_prev": previous_copy,
+                            }
+                        )
+                        st.success(
+                            f"Category '{category_key}' with {len(validated_subs)} sub-categories saved successfully ({scope_label})."
+                        )
+                        st.rerun()
+
+    st.subheader("Add sub-category to existing category")
+    if effective:
+        selected_category = st.selectbox(
+            "Category",
+            list(effective.keys()),
+            key=f"custom_existing_category_{scope}",
+        )
+        new_sub_input = st.text_input("New sub-category name", key=f"custom_new_sub_{scope}")
+
+        if st.button("Add sub-category", key=f"custom_add_sub_{scope}"):
+            sub_name, error = _validate_name(new_sub_input, "Sub-category name")
+            if error:
+                st.error(error)
+            else:
+                existing_subs = effective.get(selected_category, [])
+                existing_lower = {normalize_name(s).lower() for s in existing_subs}
+                if sub_name.lower() in existing_lower:
+                    st.error("This sub-category already exists in the taxonomy.")
+                else:
+                    category_key = _resolve_category_key(scope_taxonomy, default_taxonomy, selected_category)
+                    previous = scope_taxonomy.get(category_key)
+                    previous_copy = list(previous) if isinstance(previous, list) else None
+                    if previous is None:
+                        scope_taxonomy[category_key] = [sub_name]
+                    else:
+                        scope_taxonomy[category_key] = dedupe_case_insensitive(previous + [sub_name])
+                    save_specific_rules(specific_rules)
+                    st.session_state.setdefault("undo_stack", []).append(
+                        {
+                            "action_type": "taxonomy_save",
+                            "taxonomy_scope": scope,
+                            "taxonomy_category": category_key,
+                            "taxonomy_prev": previous_copy,
+                        }
+                    )
+                    st.success(f"Sub-category '{sub_name}' added to '{category_key}' successfully.")
+                    st.rerun()
+    else:
+        st.info("No categories available for this scope.")
+
+    if st.button("Undo last change", key=f"custom_undo_{scope}"):
+        message = _undo_last_action(df, pos_rules, specific_rules)
+        st.success(message)
 
 
 def render_downloads(df: pd.DataFrame, pos_rules: Dict, specific_rules: Dict) -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import pandas as pd
 
@@ -24,7 +24,7 @@ def ensure_rules_files() -> None:
     if not POS_RULES_PATH.exists():
         POS_RULES_PATH.write_text("{}", encoding="utf-8")
     if not SPECIFIC_RULES_PATH.exists():
-        empty = {"by_id": {}, "by_pattern": {}}
+        empty = {"by_id": {}, "by_pattern": {}, "taxonomy": {"income": {}, "expense": {}}}
         SPECIFIC_RULES_PATH.write_text(json.dumps(empty, indent=2), encoding="utf-8")
 
 
@@ -46,16 +46,13 @@ def load_specific_rules() -> Dict:
     try:
         data = json.loads(SPECIFIC_RULES_PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        data = {"by_id": {}, "by_pattern": {}}
-    data.setdefault("by_id", {})
-    data.setdefault("by_pattern", {})
-    return data
+        data = {"by_id": {}, "by_pattern": {}, "taxonomy": {"income": {}, "expense": {}}}
+    return _ensure_specific_rules_shape(data)
 
 
 def save_specific_rules(specific_rules: Dict) -> None:
     ensure_rules_files()
-    specific_rules.setdefault("by_id", {})
-    specific_rules.setdefault("by_pattern", {})
+    specific_rules = _ensure_specific_rules_shape(specific_rules)
     SPECIFIC_RULES_PATH.write_text(json.dumps(specific_rules, indent=2), encoding="utf-8")
 
 
@@ -65,9 +62,97 @@ def load_specific_rules_from_upload(uploaded_file) -> Dict:
         data = json.loads(content.decode("utf-8"))
     except Exception as exc:
         raise ValueError("Invalid specific_rules file. Must be JSON.") from exc
+    return _ensure_specific_rules_shape(data)
+
+
+def _ensure_specific_rules_shape(data: Dict) -> Dict:
     data.setdefault("by_id", {})
     data.setdefault("by_pattern", {})
+    taxonomy = data.setdefault("taxonomy", {})
+    taxonomy.setdefault("income", {})
+    taxonomy.setdefault("expense", {})
     return data
+
+
+def normalize_name(value: str) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    return " ".join(text.split())
+
+
+def dedupe_case_insensitive(items: List[str]) -> List[str]:
+    seen = set()
+    deduped: List[str] = []
+    for item in items:
+        norm = normalize_name(item)
+        if not norm:
+            continue
+        key = norm.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(norm)
+    return deduped
+
+
+def get_effective_taxonomy(
+    default_income: Dict[str, List[str]],
+    default_expense: Dict[str, List[str]],
+    user_taxonomy: Dict,
+) -> Dict[str, Dict[str, List[str]]]:
+    user_taxonomy = user_taxonomy or {}
+    income_user = user_taxonomy.get("income", {}) or {}
+    expense_user = user_taxonomy.get("expense", {}) or {}
+
+    return {
+        "income": _merge_taxonomy(default_income, income_user),
+        "expense": _merge_taxonomy(default_expense, expense_user),
+    }
+
+
+def _merge_taxonomy(default_tax: Dict[str, List[str]], user_tax: Dict) -> Dict[str, List[str]]:
+    merged: Dict[str, List[str]] = {}
+
+    for category, subs in default_tax.items():
+        merged[category] = dedupe_case_insensitive(list(subs or []))
+
+    for category, subs in (user_tax or {}).items():
+        category_name = normalize_name(category)
+        if not category_name:
+            continue
+        lower = category_name.lower()
+        existing_key = next((key for key in merged if key.lower() == lower), None)
+        if existing_key is None:
+            merged[category_name] = dedupe_case_insensitive(list(subs or []))
+        else:
+            merged[existing_key] = dedupe_case_insensitive(merged[existing_key] + list(subs or []))
+
+    return merged
+
+
+def taxonomy_self_check(taxonomy: Dict) -> List[str]:
+    issues: List[str] = []
+    if not isinstance(taxonomy, dict):
+        return ["taxonomy must be a dict"]
+    for scope in ("income", "expense"):
+        scope_data = taxonomy.get(scope, {})
+        if not isinstance(scope_data, dict):
+            issues.append(f"{scope} taxonomy must be a dict")
+            continue
+        for category, subs in scope_data.items():
+            if not isinstance(category, str) or not category.strip():
+                issues.append(f"{scope} has invalid category name")
+            if not isinstance(subs, list):
+                issues.append(f"{scope} category '{category}' must have list of sub-categories")
+                continue
+            for sub in subs:
+                if not isinstance(sub, str) or not sub.strip():
+                    issues.append(f"{scope} category '{category}' has invalid sub-category")
+                    break
+    return issues
 
 
 def rule_key(profit: int, description_norm: str, sub_description_norm: str) -> str:
@@ -84,7 +169,7 @@ def apply_pos_rules(df: pd.DataFrame, pos_rules: Dict) -> pd.DataFrame:
         return df
 
     df = df.copy()
-    mask_pos = df["description_norm"] == "pos purchase"
+    mask_pos = df["description_norm"].isin(["pos purchase", "payroll"])
     if not mask_pos.any():
         return df
 
