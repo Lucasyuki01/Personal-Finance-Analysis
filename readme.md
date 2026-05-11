@@ -1,85 +1,121 @@
-# Personal Finance Analysis
+# 💰 Personal Finance Analysis Tool
 
-## Online User Tutorial (Step by Step)
-1. Open the online app link in your browser.
-2. On the landing page, upload your transaction spreadsheets (`CSV` or `XLSX`):
-   - You can upload one or multiple files at the same time.
-3. (Optional) Upload your previous `specific_rules.json`:
-   - Use this when you want to reuse your own categories/sub-categories from earlier sessions.
-4. Click `Process`:
-   - The app will normalize, merge, and classify transactions automatically.
-5. Review data in `Home`, `Income`, and `Expenses`:
-   - Use date filters to focus on a period.
-   - Use search boxes to find transactions quickly.
-6. Classify uncategorized items in `Uncategorized`:
-   - `Unique classification` for repeated patterns (POS/Payroll/Bill Payment/Service Charge groups).
-   - `Specific classification (by ID)` for single transactions (for example withdrawals).
-   - Use `Save` to apply labels, or `Undo` to revert the last change.
-7. Create or extend personal category trees in `Custom Categories`:
-   - Choose scope (`Expense` or `Income`).
-   - Add a new category with sub-categories, or append sub-categories to an existing category.
-8. Save outputs in `Save/Download files`:
-   - Download processed transactions.
-   - Download `specific_rules.json` (important for your personal rules backup and reuse).
-   - Download `pos_rules.json` (backup/export of shared pattern rules).
-9. Reuse your rules later:
-   - In a future session, upload your saved `specific_rules.json` before processing.
-   - Your personal category logic will be restored for that session.
+A web app for analyzing personal bank transactions — upload your spreadsheets, classify expenses, and get a clear picture of where your money goes.
 
-## What the Tool Does
-- Normalizes and merges multiple transaction spreadsheets.
-- Creates/updates columns (`Source`, `Category`, `Sub-Category`, `Profit`, `ID`).
-- Removes internal transfers.
-- Classifies transactions using:
-  - `pos_rules` (fallback)
-  - `specific_rules` (priority)
-- Supports manual editing with `Save` and `Undo`.
+🔗 **[Live Demo → personal-finance-analysis-ly.streamlit.app](https://personal-finance-analysis-ly.streamlit.app/)**
 
-## Project Structure
-```text
-v1/                          # previous versions
-v2/                          # previous versions
-v3/                          # current version (main app)
-  streamlit_app.py
-  requirements.txt
-  README.md
-  src/
-    processing.py
-    rules.py
-    pages.py
-    charts.py
-    constants.py
-  data/
-    pos_rules.json
-    specific_rules.json
+---
+
+## 🎯 Why I built this
+
+Most budgeting apps require you to connect your bank account or use a specific bank. I wanted something that works with any bank's CSV/XLSX export, gives full control over categories, and doesn't store any personal data in the cloud.
+
+The tool grew through 3 major versions as the data pipeline became more sophisticated — each version introduced significant changes to how transactions are normalized, classified, and persisted across sessions.
+
+---
+
+## ✨ Features
+
+**Data ingestion**
+- Upload one or multiple CSV/XLSX transaction files simultaneously
+- Automatic normalization and merging across different bank formats
+- Removes internal transfers automatically
+
+**Classification engine**
+- Rule-based classification using two layers:
+  - `pos_rules` — shared pattern matching (POS terminals, payroll, bill payments)
+  - `specific_rules` — your personal rules, applied with priority
+- Manual classification UI with Save and Undo support
+- Unique classification for repeated patterns, specific classification by transaction ID
+
+**Custom categories**
+- Build your own category and sub-category tree
+- Scope categories as Expense or Income
+
+**Analysis views**
+- Home dashboard with full transaction overview
+- Dedicated Income and Expenses tabs
+- Date range filters and search across all views
+
+**Rules persistence**
+- Export your personal rules as `specific_rules.json`
+- Re-upload in future sessions to restore your classification logic
+- Optional PostgreSQL backend for shared `pos_rules` across multiple users
+
+---
+
+## 🛠 Tech Stack
+
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)
+![Pandas](https://img.shields.io/badge/Pandas-150458?style=flat-square&logo=pandas&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=flat-square&logo=postgresql&logoColor=white)
+
+---
+
+## 🚀 How to Use (Online)
+
+1. Open the [live app](https://personal-finance-analysis-ly.streamlit.app/)
+2. Upload your transaction files (`CSV` or `XLSX`)
+3. Optionally upload a previous `specific_rules.json` to restore your categories
+4. Click **Process** — the app normalizes, merges, and auto-classifies transactions
+5. Review data in **Home**, **Income**, and **Expenses** tabs
+6. Classify remaining items in **Uncategorized**
+7. Build custom categories in **Custom Categories**
+8. Export processed data and rules in **Save/Download**
+
+---
+
+## 🖥 How to Run Locally
+
+```bash
+git clone https://github.com/Lucasyuki01/Personal-Finance-Analysis.git
+cd Personal-Finance-Analysis
+pip install -r requirements.txt
+streamlit run v3/streamlit_app.py
 ```
 
-## Rules Persistence
-- `specific_rules`: local/session flow + download/re-upload.
-- `pos_rules`: can be centralized to collect labels from multiple users.
+**Optional — enable shared PostgreSQL rules:**
 
-### Recommended for Deploy (crowdsourced labels)
-Set this environment variable:
 ```bash
+# .env or Streamlit secrets
 POS_RULES_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME
 ```
 
-With this setup:
-- the app uses Postgres for `pos_rules` (shared across users);
-- without it, fallback is local `v3/data/pos_rules.json`.
+Without this, the app falls back to a local `pos_rules.json` file.
 
-## GitHub Preparation
-- Sensitive/runtime files are already ignored in `.gitignore`:
-  - `.env`, `.streamlit/secrets.toml`, caches, virtual environments
-  - intermediate outputs
-  - `v3/data/pos_rules.json` and `v3/data/specific_rules.json`
-- Before pushing:
-  1. review `git status`
-  2. confirm no personal data is included in local spreadsheets
-  3. commit only code and documentation
+---
 
-## Deploy
-For Streamlit Cloud:
-1. Set `Main file path` to `v3/streamlit_app.py`.
-2. Ensure deployment installs `v3/requirements.txt`.
-3. (Optional, recommended) configure `POS_RULES_DATABASE_URL`.
+## 🗂 Project Structure
+
+```
+Personal-Finance-Analysis/
+├── v1/                      # Initial version
+├── v2/                      # Second iteration
+├── v3/                      # Current version
+│   ├── streamlit_app.py     # Main app entry point
+│   ├── src/
+│   │   ├── processing.py    # Data pipeline (normalize, merge, classify)
+│   │   ├── rules.py         # Rule engine (pos_rules + specific_rules)
+│   │   ├── pages.py         # Page rendering
+│   │   ├── charts.py        # Visualizations
+│   │   └── constants.py     # Shared constants
+│   └── data/
+│       ├── pos_rules.json   # Shared pattern rules (gitignored)
+│       └── specific_rules.json  # Personal rules (gitignored)
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 🔒 Privacy
+
+No transaction data is stored on any server. All processing happens in-session — when you close the browser, your data is gone. Only classification rules (no amounts or descriptions) can optionally be persisted via PostgreSQL.
+
+---
+
+## 👨‍💻 Author
+
+**Lucas Yuki Nishimoto**
+[github.com/Lucasyuki01](https://github.com/Lucasyuki01) · [lucasnishimoto.dev](https://lucasnishimoto.dev)
